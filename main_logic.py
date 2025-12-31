@@ -1,78 +1,93 @@
-import torn_api 
+import torn_api
 import excel_generator
 
-def run_payout_logic(api_key, manual_war_id=None):
-    # 1. Identify User/Faction
-    info = torn_api.get_key_info(api_key)
-    f_id = info['faction_id']
+def run_payout_logic(api_key, total_payout_cash, medical_cost, manual_war_id=None):
+    # 1. Setup
+    key_info = torn_api.get_key_info(api_key)
+    f_id = key_info['faction_id']
+    
+    war_info = torn_api.get_latest_war_id(api_key)
+    war_id = manual_war_id if manual_war_id else war_info['id']
+    
+    my_faction_report, opponent_name, start_ts, end_ts = torn_api.get_war_report_data(api_key, war_id, f_id)
+    
+    # 2. Member Base Stats
+    members = {m['id']: {
+        "name": m['name'], "attacks": m['attacks'], "rep_gained": m['score'],
+        "total_bonus_val": 0, "net_deduction_sum": 0
+    } for m in my_faction_report['members']}
 
-    # 2. Identify the War
-    if manual_war_id:
-        war_id = manual_war_id
-        # We still need the timestamps, so we fetch details
-        war_data = torn_api.get_latest_war_id(api_key) # Simple fallback
-    else:
-        war_data = torn_api.get_latest_war_id(api_key)
-        war_id = war_data['id']
-
-    # 3. Get Base Member Stats
-    report = torn_api.get_war_report_data(api_key, war_id, f_id)
-    members = {m['id']: {"name": m['name'], "attacks": m['attacks'], "raw_rep": m['score'], "deductions": 0} 
-               for m in report['members']}
-
-    # 4. Process Chain Deductions
-    chains = torn_api.get_chains_for_war(api_key, war_data['start'], war_data['end'])
-    bonus_table = []
-
+    # 3. Process All Chains in War Period
+    chains = torn_api.get_chains_for_war(api_key, start_ts, end_ts)
+    bonus_table_data = []
+    
     for c in chains:
         c_report = torn_api.get_chain_report(api_key, c['id'])
-        details = c_report.get('details', {})
-        
-        # Logic: Avg Rep = Total Respect / Total Hits (fallback to 5)
-        avg_rep = (details.get('respect', 0) / details.get('targets', 1)) if details.get('targets', 0) > 0 else 5
-        
         for b in c_report.get('bonuses', []):
-            attacker_id = b['attacker_id']
-            net_deduction = b['respect'] - avg_rep
-            
-            # Apply deduction to member total
-            if attacker_id in members:
-                members[attacker_id]['deductions'] += net_deduction
+            u_id = b['attacker_id']
+            if u_id in members:
+                members[u_id]['total_bonus_val'] += b['respect']
+                bonus_table_data.append({
+                    "u_id": u_id, "defender": b.get('defender_id', 'Unknown'),
+                    "deduction": b['respect'], "cid": c['id']
+                })
 
-            # Prep data for the Bonus Table UI
-            bonus_table.append({
-                "name": members.get(attacker_id, {}).get("name", "Unknown"),
-                "bonus_hit": b['chain'],
-                "net_deduction": round(net_deduction, 2),
-                "link": f"https://www.torn.com/war.php?step=chainreport&chainID={c['id']}"
-            })
+    # 4. Calculate Player Averages & Net Deductions
+    for u_id, m in members.items():
+        # Player Avg = (Total Rep - All Bonuses) / Total Attacks
+        m['player_avg'] = (m['rep_gained'] - m['total_bonus_val']) / max(1, m['attacks'])
 
-    # 5. Final Calculation
-    final_member_stats = []
-    for m_id, data in members.items():
-        data['final_rep'] = max(0, data['raw_rep'] - data['deductions'])
-        final_member_stats.append(data)
+    final_bonus_table = []
+    total_net_deductions = 0
+    for b in bonus_table_data:
+        u_id = b['u_id']
+        p_avg = members[u_id]['player_avg']
+        net_deduct = b['deduction'] - p_avg
+        members[u_id]['net_deduction_sum'] += net_deduct
+        total_net_deductions += net_deduct
+        
+        final_bonus_table.append({
+            "Attacker": members[u_id]['name'], "Defender": b['defender'],
+            "Deduction": b['deduction'], "Avg rep in war": round(p_avg, 2),
+            "Net deduction": round(net_deduct, 2),
+            "Chain link": f"https://www.torn.com/war.php?step=chainreport&chainID={b['cid']}"
+        })
+
+    # 5. Final Payout Prep
+    raw_total_rep = my_faction_report['score']
+    net_total_rep = raw_total_rep - total_net_deductions
+    
+    # Calculation: (Total * 0.9) - Medical
+    payout_pool = (total_payout_cash * 0.9) - medical_cost
+    price_per_rep = payout_pool / net_total_rep if net_total_rep > 0 else 0
 
     return {
-        "member_table": final_member_stats,
-        "bonus_table": bonus_table,
-        "total_rep_earned": report['rewards']['respect']
+        "title": f"WAR :- {my_faction_report['name']} vs {opponent_name}",
+        "initial_payout": total_payout_cash,
+        "medical_cost": medical_cost,
+        "total_rep_before": raw_total_rep,
+        "total_rep_after": net_total_rep,
+        "price_per_rep": price_per_rep,
+        "members": members.values(),
+        "bonuses": final_bonus_table
     }
 
-def process_war_and_get_file(api_key, total_payout_money, manual_war_id=None):
+
+def process_war_and_get_file(api_key, total_payout_money, medical_cost, manual_war_id=None):
     # 1. Run the existing logic to get data
-    data = run_payout_logic(api_key, manual_war_id)
+    data = run_payout_logic(api_key,total_payout_money, medical_cost, manual_war_id)
     
     # 2. Generate the Excel file
-    file_path = excel_generator.create_payout_excel(data, total_payout_money)
+    file_path = excel_generator.create_payout_excel(data)
     
     return file_path
 
 # Example test
 if __name__ == "__main__":
-    test_key = ""
-    payout = 1074411000 # Your example number
-    saved_file = process_war_and_get_file(test_key, payout)
+    test_key = "MwlzqGHHMfXjrVo3"
+    payout = 342000000 # Your example number
+    medical_cost = 30000000
+    saved_file = process_war_and_get_file(test_key, payout, medical_cost)
     print(f"Excel report generated: {saved_file}")
 
 # Example Usage
