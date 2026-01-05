@@ -84,7 +84,7 @@ def process_war_and_get_file(api_key, total_payout_money, medical_cost, manual_w
 
 # Example test
 if __name__ == "__main__":
-    test_key = "MwlzqGHHMfXjrVo3"
+    test_key = ""
     payout = 342000000 # Your example number
     medical_cost = 30000000
     saved_file = process_war_and_get_file(test_key, payout, medical_cost)
