@@ -19,4 +19,6 @@ async def payout(ctx, total_amount: int, medical_cost: int, api_key: str):
     except Exception as e:
         await ctx.send(f"An error occurred: {e}")
 
-bot.run('YOUR_BOT_TOKEN_HERE')
+# bot.run('YOUR_BOT_TOKEN_HERE')
+token = os.getenv('DISCORD_TOKEN') 
+bot.run(token)
