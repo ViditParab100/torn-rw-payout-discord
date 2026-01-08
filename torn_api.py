@@ -12,11 +12,28 @@ def get_key_info(api_key):
     except: return None
 
 def get_latest_war_id(api_key):
-    url = f'{base_uri}{faction_head}rankedwars?limit=1&sort=DESC&key={api_key}'
+    """Fetches the last 2 wars and returns the one that ended most recently."""
+    url = f'{base_uri}{faction_head}rankedwars?limit=2&sort=DESC&key={api_key}'
     try:
-        wars = requests.get(url).json().get("rankedwars", [])
-        return wars[0] if wars else None
-    except: return None
+        response = requests.get(url)
+        data = response.json()
+        wars = data.get("rankedwars", [])
+        
+        if not wars:
+            return None
+            
+        # If there's only one war, return it
+        if len(wars) == 1:
+            return wars[0]
+            
+        # Return the war with the higher 'end' timestamp
+        # This ignores upcoming wars (end = 0) and picks the most recently finished one
+        latest_war = max(wars, key=lambda x: x.get('end', 0))
+        return latest_war
+        
+    except Exception as e:
+        print(f"Error fetching latest war: {e}")
+        return None
 
 def get_war_report_data(api_key, war_id, faction_id):
     url = f'{base_uri}{faction_head}{war_id}/rankedwarreport?key={api_key}'
