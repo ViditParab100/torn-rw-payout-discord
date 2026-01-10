@@ -53,3 +53,7 @@ def get_chains_for_war(api_key, start, end):
 def get_chain_report(api_key, chain_id):
     url = f'{base_uri}{faction_head}{chain_id}/chainreport?key={api_key}'
     return requests.get(url).json().get("chainreport", {})
+
+def get_faction_levels(api_key, faction_id):
+    data = requests.get(f'{base_uri}faction/members?key={api_key}').json()
+    return {m['id']: m['level'] for m in data.get('members', [])}

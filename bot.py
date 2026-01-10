@@ -4,48 +4,46 @@ from discord.ext import commands
 import main_logic
 import os
 
-# 1. Setup Intents and Bot Class
 intents = discord.Intents.default()
 intents.message_content = True
 
-class MyBot(commands.Bot):
+class RWBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # This syncs your / commands with Discord's servers
         await self.tree.sync()
-        print(f"Synced slash commands for {self.user}")
+        print(f"✅ Slash commands synced for {self.user}")
 
-bot = MyBot()
+bot = RWBot()
 
-# 2. The Slash Command
-@bot.tree.command(name="payout", description="Calculate RW Payouts with smooth respect averages")
+@bot.tree.command(name="payout", description="Calculate RW Payouts with Newbie Bonus")
 @app_commands.describe(
-    total_payout="The total money received from the Ranked War",
-    medical_cost="Total medical costs to deduct after the 10% faction cut",
-    api_key="Your Torn API Key"
+    total_payout="Total money received",
+    medical_cost="Medical costs to deduct",
+    api_key="Your Torn API Key",
+    outside_hit_val="Cash per outside hit (Default 200k)",
+    outside_hit_limit="Max rewarded outside hits per person (Default 5)"
 )
-async def payout(interaction: discord.Interaction, total_payout: int, medical_cost: int, api_key: str):
-    # 'ephemeral=True' means only YOU see the processing message, hiding your key entirely
-    await interaction.response.send_message(
-        f"⏳ Processing report... Deducting {medical_cost:,} medical costs.", 
-        ephemeral=True
-    )
+async def payout(interaction: discord.Interaction, 
+                 total_payout: int, 
+                 medical_cost: int, 
+                 api_key: str, 
+                 outside_hit_val: int = 200000, 
+                 outside_hit_limit: int = 5):
+    
+    await interaction.response.send_message("⏳ Processing...", ephemeral=True)
 
     try:
-        # Call your logic function
-        saved_file = main_logic.process_war_and_get_file(api_key, total_payout, medical_cost)
-
-        # Send the file to the channel for everyone to see
-        # We use the follow-up because the initial response was ephemeral
+        # Passing the new limit to the logic
+        saved_file = main_logic.process_war_and_get_file(api_key, total_payout, medical_cost, outside_hit_val, outside_hit_limit)
+        
         await interaction.channel.send(
-            content=f"✅ **RW Payout Report Generated** by {interaction.user.mention}\n"
-                    f"Total Payout: ${total_payout:,} | Medical: ${medical_cost:,}",
+            content=f"✅ **RW Payout Report** (Limit: {outside_hit_limit} hits/newbie)",
             file=discord.File(saved_file)
         )
 
-        # Clean up the file from the server
+        # Cleanup
         if os.path.exists(saved_file):
             os.remove(saved_file)
 
