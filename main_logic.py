@@ -91,7 +91,7 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
             "Deduction": b['deduction'], 
             "Avg rep in chain": round(p_avg, 2),
             "Net deduction": round(net_deduct, 2),
-            "Chain link": f"https://www.torn.com/factions.php?step=chainreport&chainID={b['cid']}"
+            "Chain link": f"https://www.torn.com/war.php?step=chainreport&chainID={b['cid']}"
         })
 
     # 5. Final Payout Calculation
@@ -103,6 +103,8 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
 
     return {
         "title": f"WAR :- {my_faction_report['name']} vs {opponent_name}",
+        "war_id": war_id,
+        "opponent_name": opponent_name,
         "initial_payout": total_payout_cash,
         "medical_cost": medical_cost,
         "newbie_bonus_total": total_newbie_bonus_pool,
@@ -114,8 +116,17 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
     }
 
 def process_war_and_get_file(api_key, total_payout_money, medical_cost, outside_hit_val, outside_hit_limit):
+    # 1. Run the logic to get data
     data = run_payout_logic(api_key, total_payout_money, medical_cost, outside_hit_val, outside_hit_limit)
-    file_path = excel_generator.create_payout_excel(data)
+    # 2. Create the dynamic filename
+    # Format: War_Report_OpponentName_WarID.xlsx
+    # We strip spaces from the opponent name to prevent file errors
+    clean_opp_name = data['opponent_name'].replace(" ", "")
+    filename = f"War_Report_{clean_opp_name}_{data['war_id']}.xlsx"
+    
+    # 3. Generate the Excel file
+    file_path = excel_generator.create_payout_excel(data, filename)
+    
     return file_path
 
 # Example test
