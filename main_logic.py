@@ -72,7 +72,7 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
 
     for u_id, m in members.items():
         # Player Avg = (Total Rep - All Bonuses) / War Hits
-        m['player_avg'] = (m['rep_gained'] - m['total_bonus_val']) / max(1, m['war_hits'])
+        m['player_avg'] = (m['rep_gained'] - m['total_bonus_val']) / max(1, m['war_hits']) if (m['rep_gained'] - m['total_bonus_val']) / max(1, m['war_hits']) > 0 else 5
 
     final_bonus_table = []
     total_net_deductions = 0
@@ -135,7 +135,7 @@ if __name__ == "__main__":
     payout = 1575000000 # Your example number
     medical_cost = 0
     outside_hit_val = 200000
-    outside_hit_limit = 5
+    outside_hit_limit = 100
     saved_file = process_war_and_get_file(test_key, payout, medical_cost,outside_hit_val, outside_hit_limit)
     print(f"Excel report generated: {saved_file}")
 

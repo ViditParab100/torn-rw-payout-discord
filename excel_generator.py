@@ -47,11 +47,11 @@ def create_payout_excel(data, filename="War_Payout.xlsx"):
         row = 10
         # Sort by total payout (Respect share + Newbie Bonus)
         sorted_members = sorted(data['members'], 
-                                key=lambda x: ((x['rep_gained'] - x['net_deduction_sum']) * data['price_per_rep']) + x['newbie_bonus'], 
+                                key=lambda x: ((x['rep_gained'] - x['net_deduction_sum'] if x['rep_gained'] - x['net_deduction_sum'] >0 else 0) * data['price_per_rep']) + x['newbie_bonus'], 
                                 reverse=True)
         
         for m in sorted_members:
-            net_rep = m['rep_gained'] - m['net_deduction_sum']
+            net_rep = m['rep_gained'] - m['net_deduction_sum'] if m['rep_gained'] - m['net_deduction_sum'] >0 else 0
             respect_share = net_rep * data['price_per_rep']
             final_total = respect_share + m['newbie_bonus']
 
