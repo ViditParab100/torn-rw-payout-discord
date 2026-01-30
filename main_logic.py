@@ -52,7 +52,7 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
         
         level = member_levels.get(u_id, 100)
         # Bonus is only paid on the capped amount
-        n_bonus = (capped_hits * outside_hit_val) if level <= 15 else 0
+        n_bonus = (capped_hits * outside_hit_val) if level <= 30 else 0
         total_newbie_bonus_pool += n_bonus
         
         members[u_id] = {
