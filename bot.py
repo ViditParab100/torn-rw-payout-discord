@@ -2,7 +2,31 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import main_logic
+
+from flask import Flask
+from threading import Thread
 import os
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is online!"
+
+def run():
+    # Render assigns a port dynamically via the PORT environment variable
+    port = int(os.environ.get("PORT", 10000)) 
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# --- CALL THIS BEFORE bot.run(token) ---
+keep_alive()
+
+
+# Code ->
 
 intents = discord.Intents.default()
 intents.message_content = True
