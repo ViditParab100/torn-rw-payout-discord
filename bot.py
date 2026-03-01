@@ -46,21 +46,23 @@ bot = RWBot()
     total_payout="Total money received",
     medical_cost="Medical costs to deduct",
     api_key="Your Torn API Key",
-    outside_hit_val="Cash per outside hit (Default 200k)",
-    outside_hit_limit="Max rewarded outside hits per person (Default 5)"
+    pay_pey_assist="Payment per assist (Default 0$)",
+    outside_hit_val="Cash per outside hit (Default 0$)",
+    outside_hit_limit="Max rewarded outside hits per person (Default 0)"
 )
 async def payout(interaction: discord.Interaction, 
                  total_payout: int, 
                  medical_cost: int, 
                  api_key: str, 
-                 outside_hit_val: int = 200000, 
-                 outside_hit_limit: int = 5):
+                 pay_pey_assist: int = 0,
+                 outside_hit_val: int = 0, 
+                 outside_hit_limit: int = 0):
     
     await interaction.response.send_message("⏳ Processing...", ephemeral=True)
 
     try:
         # Passing the new limit to the logic
-        saved_file = main_logic.process_war_and_get_file(api_key, total_payout, medical_cost, outside_hit_val, outside_hit_limit)
+        saved_file = main_logic.process_war_and_get_file(api_key, total_payout, medical_cost, pay_pey_assist, outside_hit_val, outside_hit_limit)
         
         await interaction.channel.send(
             content=f"✅ **RW Payout Report** (Limit: {outside_hit_limit} hits/newbie)",

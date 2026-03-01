@@ -1,7 +1,7 @@
 import torn_api
 import excel_generator
 
-def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, outside_hit_limit, manual_war_id=None):    # 1. Setup & Bulk Level Fetching
+def run_payout_logic(api_key, total_payout_cash, medical_cost, assist_pay, outside_hit_val, outside_hit_limit, manual_war_id=None):    # 1. Setup & Bulk Level Fetching
     key_info = torn_api.get_key_info(api_key)
     f_id = key_info['faction_id']
     
@@ -14,7 +14,8 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
     
     # 2. Process All Chains in War Period
     chains = torn_api.get_chains_for_war(api_key, start_ts, end_ts)
-    total_chain_attacks = {} 
+    total_chain_attacks = {}
+    total_chain_assists = {}
     bonus_table_data = []
     
     for c in chains:
@@ -25,7 +26,9 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
             u_id = a['id']
             # Using .get() chain to safely reach the nested 'total' hits
             hit_count = a.get('attacks', {}).get('total', 0)
+            asst_count = a.get('attacks', {}).get('assists', 0)
             total_chain_attacks[u_id] = total_chain_attacks.get(u_id, 0) + hit_count
+            total_chain_assists[u_id] = total_chain_assists.get(u_id, 0) + asst_count
             
         # FIX: Track Bonuses using defender_id (defender_name is not in chain reports)
         for b in c_report.get('bonuses', []):
@@ -44,7 +47,8 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
     for m in my_faction_report['members']:
         u_id = m['id']
         war_hits = m['attacks'] 
-        chain_hits = total_chain_attacks.get(u_id, 0) 
+        chain_hits = total_chain_attacks.get(u_id, 0)
+        chain_asst = total_chain_assists.get(u_id, 0)
         outside_hits = max(0, chain_hits - war_hits)
         
         # APPLY LIMIT: Cap the hits at the user-defined limit
@@ -58,6 +62,7 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
         members[u_id] = {
             "name": m['name'], 
             "war_hits": war_hits, 
+            "war_assists": chain_asst,
             "outside_hits": outside_hits, # We still show total outside hits in Excel
             "rep_gained": m['score'],
             "newbie_bonus": n_bonus,      # But payout is based on capped_hits
@@ -98,7 +103,8 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
     raw_total_rep = my_faction_report['score']
     net_total_rep = raw_total_rep - total_net_deductions
     
-    payout_pool = (total_payout_cash * 0.9) - medical_cost - total_newbie_bonus_pool
+    total_assist_pay = sum(total_chain_assists.values()) * assist_pay
+    payout_pool = (total_payout_cash * 0.9) - medical_cost - total_newbie_bonus_pool - total_assist_pay
     price_per_rep = payout_pool / net_total_rep if net_total_rep > 0 else 0
 
     return {
@@ -108,6 +114,9 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
         "initial_payout": total_payout_cash,
         "medical_cost": medical_cost,
         "newbie_bonus_total": total_newbie_bonus_pool,
+        "assist_pay": assist_pay,
+        "total_assists": sum(total_chain_assists.values()),
+        "total_assists_pay": total_assist_pay,
         "total_rep_before": raw_total_rep,
         "total_rep_after": net_total_rep,
         "price_per_rep": price_per_rep,
@@ -115,9 +124,9 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, outside_hit_val, 
         "bonuses": final_bonus_table
     }
 
-def process_war_and_get_file(api_key, total_payout_money, medical_cost, outside_hit_val, outside_hit_limit):
+def process_war_and_get_file(api_key, total_payout_money, medical_cost, assist_pay, outside_hit_val, outside_hit_limit):
     # 1. Run the logic to get data
-    data = run_payout_logic(api_key, total_payout_money, medical_cost, outside_hit_val, outside_hit_limit)
+    data = run_payout_logic(api_key, total_payout_money, medical_cost, assist_pay, outside_hit_val, outside_hit_limit)
     # 2. Create the dynamic filename
     # Format: War_Report_OpponentName_WarID.xlsx
     # We strip spaces from the opponent name to prevent file errors
@@ -134,9 +143,10 @@ if __name__ == "__main__":
     test_key = "MwlzqGHHMfXjrVo3"
     payout = 1575000000 # Your example number
     medical_cost = 0
-    outside_hit_val = 200000
+    assist_pay = 0
+    outside_hit_val = 0
     outside_hit_limit = 100
-    saved_file = process_war_and_get_file(test_key, payout, medical_cost,outside_hit_val, outside_hit_limit)
+    saved_file = process_war_and_get_file(test_key, payout, medical_cost, assist_pay, outside_hit_val, outside_hit_limit)
     print(f"Excel report generated: {saved_file}")
 
 # Example Usage
