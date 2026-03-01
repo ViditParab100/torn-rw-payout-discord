@@ -40,7 +40,7 @@ def create_payout_excel(data, filename="War_Payout.xlsx"):
         sheet.write('A8', 'Final Respect Pool', header_fmt); sheet.write('B8', pool_for_rep, money_fmt)
         
         sheet.write('A9', 'Total Rep (After Ded.)', header_fmt); sheet.write('B9', data['total_rep_after'], num_fmt)
-        sheet.write('A10', 'Price per rep', header_fmt); sheet.write('B10', data['price_per_rep'], num_fmt)
+        sheet.write('A10', 'Pay per Rep', header_fmt); sheet.write('B10', data['price_per_rep'], num_fmt)
 
         # --- Main Member Table ---
         # Added 'War Hits', 'Outside Hits', and 'Newbie Bonus'
@@ -49,9 +49,9 @@ def create_payout_excel(data, filename="War_Payout.xlsx"):
             'Chain deduction', 'Net Rep', 'Newbie Bonus', 'Assist Pay', 'Final Payout'
         ]
         for c, h in enumerate(m_headers): 
-            sheet.write(9, c, h, header_fmt)
+            sheet.write(11, c, h, header_fmt)
         
-        row = 10
+        row = 12
         # Sort by total payout (Respect share + Newbie Bonus + Assist Pay)
         sorted_members = sorted(data['members'], 
                                 key=lambda x: ((x['rep_gained'] - x['net_deduction_sum'] if x['rep_gained'] - x['net_deduction_sum'] >0 else 0) * data['price_per_rep']) + x['newbie_bonus'] + x['war_assists'] * data['assist_pay'], 
