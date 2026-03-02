@@ -126,18 +126,17 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, assist_pay, outsi
     }
 
 def process_war_and_get_files(api_key, total_payout_money, medical_cost, assist_pay, outside_hit_val, outside_hit_limit):
+    # 1. Get the data once
     data = run_payout_logic(api_key, total_payout_money, medical_cost, assist_pay, outside_hit_val, outside_hit_limit)
     
     clean_opp_name = data['opponent_name'].replace(" ", "")
     base_name = f"War_Report_{clean_opp_name}_{data['war_id']}"
-    xlsx_path = f"{base_name}.xlsx"
-    pdf_path = f"{base_name}.pdf"
     
-    # 1. Generate your Excel first
-    excel_generator.create_payout_excel(data, xlsx_path)
+    # 2. Generate Excel (the master)
+    xlsx_path = excel_generator.create_payout_excel(data, f"{base_name}.xlsx")
     
-    # 2. Directly convert that Excel to PDF
-    pdf_convertor.convert_xlsx_to_pdf(xlsx_path, pdf_path)
+    # 3. Generate PDF (the visual mirror)
+    pdf_path = pdf_convertor.create_payout_pdf(data, f"{base_name}.pdf")
     
     return [xlsx_path, pdf_path]
 
