@@ -2,4 +2,5 @@ discord.py>=2.6.4
 requests>=2.32.5
 pandas>=2.2.0
 xlsxwriter>=3.2.9
+aspose-cells-python
 flask

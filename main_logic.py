@@ -1,5 +1,6 @@
 import torn_api
 import excel_generator
+import pdf_convertor
 
 def run_payout_logic(api_key, total_payout_cash, medical_cost, assist_pay, outside_hit_val, outside_hit_limit, manual_war_id=None):    # 1. Setup & Bulk Level Fetching
     key_info = torn_api.get_key_info(api_key)
@@ -124,19 +125,21 @@ def run_payout_logic(api_key, total_payout_cash, medical_cost, assist_pay, outsi
         "bonuses": final_bonus_table
     }
 
-def process_war_and_get_file(api_key, total_payout_money, medical_cost, assist_pay, outside_hit_val, outside_hit_limit):
-    # 1. Run the logic to get data
+def process_war_and_get_files(api_key, total_payout_money, medical_cost, assist_pay, outside_hit_val, outside_hit_limit):
     data = run_payout_logic(api_key, total_payout_money, medical_cost, assist_pay, outside_hit_val, outside_hit_limit)
-    # 2. Create the dynamic filename
-    # Format: War_Report_OpponentName_WarID.xlsx
-    # We strip spaces from the opponent name to prevent file errors
+    
     clean_opp_name = data['opponent_name'].replace(" ", "")
-    filename = f"War_Report_{clean_opp_name}_{data['war_id']}.xlsx"
+    base_name = f"War_Report_{clean_opp_name}_{data['war_id']}"
+    xlsx_path = f"{base_name}.xlsx"
+    pdf_path = f"{base_name}.pdf"
     
-    # 3. Generate the Excel file
-    file_path = excel_generator.create_payout_excel(data, filename)
+    # 1. Generate your Excel first
+    excel_generator.create_payout_excel(data, xlsx_path)
     
-    return file_path
+    # 2. Directly convert that Excel to PDF
+    pdf_convertor.convert_xlsx_to_pdf(xlsx_path, pdf_path)
+    
+    return [xlsx_path, pdf_path]
 
 # Example test
 if __name__ == "__main__":
@@ -146,7 +149,7 @@ if __name__ == "__main__":
     assist_pay = 0
     outside_hit_val = 0
     outside_hit_limit = 100
-    saved_file = process_war_and_get_file(test_key, payout, medical_cost, assist_pay, outside_hit_val, outside_hit_limit)
+    saved_file = process_war_and_get_files(test_key, payout, medical_cost, assist_pay, outside_hit_val, outside_hit_limit)
     print(f"Excel report generated: {saved_file}")
 
 # Example Usage
