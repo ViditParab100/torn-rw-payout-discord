@@ -145,9 +145,9 @@ def process_war_and_get_files(api_key, total_payout_money, medical_cost, assist_
 if __name__ == "__main__":
     test_key = "MwlzqGHHMfXjrVo3"
     payout = 1575000000 # Your example number
-    medical_cost = 0
-    assist_pay = 0
-    outside_hit_val = 0
+    medical_cost = 10000000
+    assist_pay = 500000
+    outside_hit_val = 10000
     outside_hit_limit = 100
     saved_file = process_war_and_get_files(test_key, payout, medical_cost, assist_pay, outside_hit_val, outside_hit_limit)
     print(f"Excel report generated: {saved_file}")

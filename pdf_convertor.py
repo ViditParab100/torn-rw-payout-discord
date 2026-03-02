@@ -1,17 +1,21 @@
-import aspose.cells
+import jpype
+import asposecells
+# This starts the Java engine required for the conversion
+if not jpype.isJVMStarted():
+    jpype.startJVM()
 
-from aspose.cells import Workbook, PdfSaveOptions
+from asposecells.api import Workbook, PdfSaveOptions
 
 def convert_xlsx_to_pdf(xlsx_file, pdf_file):
     try:
-        # Load the existing Excel file
+        # Load the workbook
         workbook = Workbook(xlsx_file)
         
-        # Options to ensure it fits nicely on a page
+        # Set PDF options
         saveOptions = PdfSaveOptions()
-        saveOptions.one_page_per_sheet = True  # Keeps the table together
+        saveOptions.setOnePagePerSheet(True)
         
-        # Save as PDF
+        # Save
         workbook.save(pdf_file, saveOptions)
         return pdf_file
     except Exception as e:
