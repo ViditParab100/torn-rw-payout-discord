@@ -143,7 +143,7 @@ def process_war_and_get_files(api_key, total_payout_money, medical_cost, assist_
 # Example test
 if __name__ == "__main__":
     test_key = "MwlzqGHHMfXjrVo3"
-    payout = 1575000000 # Your example number
+    payout = 1975000000 # Your example number
     medical_cost = 10000000
     assist_pay = 500000
     outside_hit_val = 10000
