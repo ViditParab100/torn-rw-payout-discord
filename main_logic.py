@@ -1,6 +1,7 @@
 import torn_api
 import excel_generator
 import pdf_convertor
+import memory_db
 
 def run_payout_logic(api_key, total_payout_cash, medical_cost, assist_pay, outside_hit_val, outside_hit_limit, manual_war_id=None):    # 1. Setup & Bulk Level Fetching
     key_info = torn_api.get_key_info(api_key)
@@ -140,9 +141,63 @@ def process_war_and_get_files(api_key, total_payout_money, medical_cost, assist_
     
     return [xlsx_path, pdf_path]
 
+
+# --- NEW ADDITIONS FOR MEMORY & ANALYTICS ---
+
+def recalculate_money(cached_data, new_payout, new_med, new_assist):
+    """Updates cash payouts without re-running the Torn API."""
+    cached_data['initial_payout'] = new_payout
+    cached_data['medical_cost'] = new_med
+    cached_data['assist_pay'] = new_assist
+    cached_data['total_assists_pay'] = cached_data['total_assists'] * new_assist
+    
+    # Recalculate price per rep pool
+    pool = (new_payout * 0.9) - new_med - cached_data['newbie_bonus_total'] - cached_data['total_assists_pay']
+    cached_data['price_per_rep'] = pool / cached_data['total_rep_after'] if cached_data['total_rep_after'] > 0 else 0
+    cached_data['_was_cached'] = True # Flag for the Ranger to know
+    return cached_data
+
+def process_war_request(api_key, total_payout, medical_cost, assist_pay, outside_hit_val, outside_hit_limit, force_update=False):
+    """Smart router: Checks cache first, otherwise hits Torn API."""
+    # Fast 1-page API call to get current War ID
+    war_info = torn_api.get_latest_war_id(api_key)
+    current_war_id = war_info['id'] if war_info else None
+    
+    cached_data = memory_db.get_cached_war(current_war_id) if current_war_id else None
+    
+    if cached_data and not force_update:
+        print(f"🧠 Memory Hit: Loaded War {current_war_id} from DB.")
+        # Only recalculate the flat cash amounts (avoids API calls)
+        return recalculate_money(cached_data, total_payout, medical_cost, assist_pay)
+    
+    print("🌍 Memory Miss or Force Update. Fetching from Torn API...")
+    # Run the original legacy logic
+    final_data = run_payout_logic(api_key, total_payout, medical_cost, assist_pay, outside_hit_val, outside_hit_limit)
+    final_data['_was_cached'] = False
+    
+    # Save/Overwrite in the local SQLite memory
+    # (In a real app, you might want to delete the old record if force updating, 
+    # but sqlite's INSERT will fail peacefully if it exists, so we just let it be 
+    # or handle overwriting. For now, it secures the first complete run).
+    memory_db.save_war(final_data) 
+    return final_data
+
+def generate_files_from_data(data):
+    """Generates Excel and PDF from a pre-calculated data dictionary."""
+    clean_opp_name = data['opponent_name'].replace(" ", "")
+    base_name = f"War_Report_{clean_opp_name}_{data['war_id']}"
+    
+    xlsx_path = excel_generator.create_payout_excel(data, f"{base_name}.xlsx")
+    pdf_path = pdf_convertor.create_payout_pdf(data, f"{base_name}.pdf")
+    
+    return [xlsx_path, pdf_path]
+
+# Keep your original process_war_and_get_files intact below this so legacy calls don't break!
+
+
 # Example test
 if __name__ == "__main__":
-    test_key = "MwlzqGHHMfXjrVo3"
+    test_key = "ArdyKEZzOKwSZ1xy"
     payout = 1975000000 # Your example number
     medical_cost = 10000000
     assist_pay = 500000

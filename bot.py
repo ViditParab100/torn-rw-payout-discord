@@ -8,6 +8,10 @@ from threading import Thread
 import os
 import asyncio
 
+import ai_engine
+import chart_generator
+import memory_db
+
 # 1. Flask Keep-Alive Setup
 app = Flask('')
 
@@ -33,6 +37,81 @@ class RWBot(commands.Bot):
         print(f"✅ Slash commands synced for {self.user}")
 
 bot = RWBot()
+
+
+@bot.event
+async def on_message(message):
+    # 1. Ignore messages from the bot itself
+    if message.author == bot.user:
+        return
+
+    # 2. Check if CyberJeremy was @mentioned
+    if bot.user.mentioned_in(message):
+        
+        # Remove the bot's @ping from the text
+        clean_message = message.content.replace(f'<@{bot.user.id}>', '').strip().lower()
+        if not clean_message:
+            clean_message = "Hey buddy."
+
+        # Define keywords that trigger a War Report
+        scout_keywords = ["scout", "war report", "stats", "war summary", "how are we doing", "status"]
+        
+        # --- ROUTE A: THE SCOUT / WAR REPORT ---
+        if any(keyword in clean_message for keyword in scout_keywords):
+            async with message.channel.typing():
+                # Get user's key from your MongoDB/SQLite vault
+                api_key = memory_db.get_user_key(message.author.id)
+                if not api_key:
+                    await message.channel.send(f"Hey {message.author.display_name}, I don't have your API key. Run `/set_key` first so I can check the logs.")
+                    return
+
+                try:
+                    await message.channel.send("*Give me a sec, grabbin my binoculars...*")
+                    
+                    # Fetch data, generate AI text, and build charts
+                    war_data = main_logic.process_war_request(api_key, 0, 0, 0, 0, 0, force_update=False)
+                    ai_summary = ai_engine.generate_ai_summary(war_data)
+                    
+                    clean_opp_name = war_data['opponent_name'].replace(" ", "")
+                    base_name = f"War_{clean_opp_name}_{war_data['war_id']}"
+                    chart_paths = chart_generator.generate_war_charts(war_data, base_name)
+                    discord_files = [discord.File(path) for path in chart_paths]
+                    
+                    await message.channel.send(content=ai_summary, files=discord_files)
+
+                    # Cleanup images
+                    for path in chart_paths:
+                        if os.path.exists(path): os.remove(path)
+
+                except Exception as e:
+                    await message.channel.send(f"❌ **CyberJeremy Error:** {str(e)}")
+
+        # --- ROUTE B: NORMAL CHAT WITH MEMORY ---
+        else:
+            async with message.channel.typing():
+                # Fetch the last 7 messages in the channel to build short-term memory
+                raw_history = [msg async for msg in message.channel.history(limit=7)]
+                raw_history.reverse() # Put them in chronological order
+                
+                # Format the history into a readable script for the AI
+                history_text = ""
+                for msg in raw_history:
+                    # Skip the current message we are responding to
+                    if msg.id != message.id:
+                        speaker = msg.author.display_name
+                        history_text += f"{speaker}: {msg.content}\n"
+
+                # Send it all to the AI Engine
+                ai_reply = ai_engine.chat_with_jeremy(
+                    user_name=message.author.display_name, 
+                    user_message=clean_message,
+                    chat_history=history_text
+                )
+                
+                await message.channel.send(ai_reply)
+
+    # 3. Process Slash Commands (like /payout and /set_key)
+    await bot.process_commands(message)
 
 @bot.tree.command(name="payout", description="Calculate RW Payouts (Excel + PDF)")
 @app_commands.describe(

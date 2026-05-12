@@ -5,3 +5,6 @@ xlsxwriter>=3.2.9
 fpdf2
 openpyxl
 flask
+matplotlib
+google-generativeai
+pymongo[srv]
