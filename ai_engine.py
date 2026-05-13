@@ -23,7 +23,7 @@ NICKNAMES = {
     "Aberwarum": ["Aber", "Aberwarum"],
     "Helena05" : ["Helen", "HeLen"],
     "Rockless" : ["Audy", "Rockless"],
-    "KuroKrysel" : ["Kuro", "Madam Kuro", "Kuxi"],
+    "KuroKrysel" : ["Kuro", "Madam Kuro", "Kuxi", "Bad Kuro", "Evil Kuro"],
     "DaEpicGamer" : ["Epic"],
     "Rehsirap" : ["Reh"],
     "Xirken" :  ["Xirken"],
@@ -98,10 +98,10 @@ def generate_ai_summary(current_war_data):
     
     CRITICAL INSTRUCTION FOR NAMES:
     Check this dictionary: {NICKNAMES}
-    If a player's name is in here, you MUST replace their real name with ONE of the nicknames from their list! Mix it up and pick randomly.
+    If a player's name is in here, you MUST replace their real name with ONE of the nicknames from their list! Mix it up and pick randomly. Only Faction mates will call you.
     
-    Goal: Summarize the war. Praise MVP, shoutout an improver, or mock an MIA. Pick 2-3 options. Keep it under 3 paragraphs. It will always be our team player. 
-    Don't add ur current_activity when you're making the summary. Always reply with ":noping:" when pinged by KuroKrysel and Spidernnam and add ur message after it. 
+    Goal: Summarize the war. Praise MVP, shoutout an improver, or mock an MIA. Pick 2-3 options. Keep it under 3 paragraphs. It will always be our Faction player. 
+    Don't add ur current_activity when you're making the summary. Always reply with ":noPing:" when called by players with 'Kuro' and 'Spider' in their name strings and add ur message after it. 
     """
     
     data_payload = f"Opponent: {current_war_data.get('opponent_name')} | Top 5: {top_5} | Improvers: {improvers} | MIA: {mias}"
@@ -146,6 +146,7 @@ def chat_with_jeremy(user_name, user_message, chat_history=""):
     - Check nicknames in {NICKNAMES} and use them if applicable.
     - Deflect topics outside of Torn City, cars, welding, or beer.
     - Use the provided chat history to stay in context: {chat_history}
+    - You can look the net for information on topics related to Gym training and Ranked wars in Torn City
     
     Keep it casual (1-3 sentences). Be a bro, not an assistant.
     """
