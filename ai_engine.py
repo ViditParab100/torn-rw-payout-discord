@@ -1,11 +1,16 @@
-import google.generativeai as genai
 import os
-import random # <--- ADDED: To make him unpredictable
+os.environ["SARVAM_API_KEY"] = "<>"
 os.environ["MONGO_URI"] = "mongodb+srv://viditparab100_db_user:<>@cluster0.dri3qih.mongodb.net/"
+import random
+import time
+from sarvamai import SarvamAI
 import memory_db
 
-# Configure your AI Key
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+# 1. Configure Sarvam AI Client
+# Make sure to set SARVAM_API_KEY in your Render environment variables!
+SARVAM_KEY = os.environ.get("SARVAM_API_KEY")
+client = SarvamAI(api_subscription_key=SARVAM_KEY)
+MODEL_NAME = "sarvam-105b"
 
 # --- NICKNAME DATABASE ---
 NICKNAMES = {
@@ -13,20 +18,21 @@ NICKNAMES = {
     "Spidernnam": ["Spidey", "Spider"],
     "FlipJames": ["Flip", "James"],
     "ChineseGandalf": ["Boss", "CG"],
-    "Xtatik": "X",
-    "RockStarDad": "RSD",
-    "Kaemani": "Kae",
+    "Xtatik": ["X"],
+    "RockStarDad": ["RSD", "Dad"],
+    "Kaemani": ["Kae"],
     "Aberwarum": ["Aber", "Aberwarum"],
 }
 
 def load_jeremy_chats():
     try:
         with open("Ranger Chats.txt", "r", encoding="utf-8") as file:
-            return file.read()
+            lines = file.readlines()
+            # Taking the last 50 lines keeps the prompt context high-quality but slim
+            return "".join(lines[-50:])
     except FileNotFoundError:
         return "(Chat logs not found.)"
 
-# --- ADDED: The Activity Injector ---
 def get_random_activity():
     activities = [
         "You just finished welding a subframe on a Yamaha SXS and you're wiping grease off your hands.",
@@ -38,111 +44,74 @@ def get_random_activity():
     ]
     return random.choice(activities)
 
-
+# ==========================================
+# 1. WAR SUMMARY GENERATOR
+# ==========================================
 def generate_ai_summary(current_war_data):
     history = memory_db.get_last_5_wars_stats()
     jeremy_raw_chats = load_jeremy_chats()
     
-    # ==========================================
-    # PYTHON PRE-FILTERING (Handles 100+ players)
-    # ==========================================
+    # --- PYTHON PRE-FILTERING ---
     members = current_war_data.get('members', [])
-    
-    # 1. Get Top 5 MVP Contenders
     sorted_by_rep = sorted(members, key=lambda x: x['rep_gained'], reverse=True)
     top_5 = [{'name': m['name'], 'hits': m['war_hits'], 'rep': m['rep_gained']} for m in sorted_by_rep[:5]]
     
-    # 2. Find Improvers & MIAs
     improvers = []
     mias = []
-    
     for m in members:
-        name = m['name']
-        hits = m['war_hits']
-        
+        name, hits = m['name'], m['war_hits']
         if name in history:
             past_avg = history[name]['avg_hits']
-            # MIA: Scored 0, but usually gets at least 5 hits
-            if hits == 0 and past_avg >= 5:
+            if hits == 0 and past_avg >= 5: 
                 mias.append(name)
-            # Improvers: Got at least 10 hits, and beat their average by 20%
             elif hits >= 10 and hits > (past_avg * 1.2):
                 improvers.append({'name': name, 'hits': hits, 'old_avg': round(past_avg, 1)})
     
-    # Limit improvers and MIAs to a few names so the AI doesn't write an essay
-    improvers = improvers[:3]
-    mias = mias[:5]
-
-    # ==========================================
-    # AI PROMPT & GENERATION
-    # ==========================================
+    improvers, mias = improvers[:3], mias[:5]
     current_activity = get_random_activity()
-    
+
     system_prompt = f"""
-    You are CyberJeremy, an AI construct created by 'Star_vader'. 
-    You were built to carry on the legacy of the late faction member, Jeremy.
-    
-    RIGHT NOW: {current_activity}
-    Let this briefly influence how you start your message.
-    
-    YOUR SPEAKING STYLE (TRAINING DATA):
-    Below are actual messages sent by the original Jeremy. Study his vocabulary, his use of slang (like "cuz", "yall", "goin"), his casual punctuation, and his overall vibe. 
-    MIMIC THIS EXACT STYLE IN YOUR RESPONSE:
-    
-    <jeremy_chats>
-    {jeremy_raw_chats}
-    </jeremy_chats>
-    
-    Your Task:
-    Write a short Discord message summarizing the war data. 
-    DO NOT sound like a broken record. Mix it up!
-    
-    Pick ONLY 2 OR 3 of the following things to talk about (ignore the rest):
-    - Praise the MVP (highest respect from the Top 5 list).
-    - Shoutout an "Improver" for stepping up.
-    - Poke fun at an "MIA" player for falling asleep.
-    - Acknowledge your Maker (Star_vader).
-    - Complain about the opponent faction.
+    You are CyberJeremy, a digital construct of a late Torn member named Jeremy.
+    Speaking Style: {jeremy_raw_chats}
+    Right Now: {current_activity}
     
     CRITICAL INSTRUCTION FOR NAMES:
-    Check this dictionary mapping real names to their allowed nicknames: {NICKNAMES}
+    Check this dictionary: {NICKNAMES}
     If a player's name is in here, you MUST replace their real name with ONE of the nicknames from their list! Mix it up and pick randomly.
     
-    Format: Use Discord markdown. Keep it under 3 paragraphs.
+    Goal: Summarize the war. Praise MVP, shoutout an improver, or mock an MIA. Pick 2-3. Keep it under 3 paragraphs.
+    Don't add ur current_activity when you're making the summary.
     """
     
-    data_payload = f"""
-    --- CURATED WAR STATS ---
-    Opponent: {current_war_data.get('opponent_name', 'Unknown')}
-    Total Faction Respect: {current_war_data.get('total_rep_after', 0):.1f}
-    
-    Top 5 Hitters: {top_5}
-    Improvers (Beat their average): {improvers}
-    MIA (Usually hit, but got 0 this war): {mias}
-    """
-    
-    try:
-        # --- ADDED: generation_config with temperature to make him creative ---
-        model = genai.GenerativeModel(
-            'gemini-2.5-flash', 
-            system_instruction=system_prompt,
-            generation_config={"temperature": 0.85}
-        )
-        response = model.generate_content(data_payload)
-        return response.text
-    except Exception as e:
-        print(f"💥 AI ERROR: {str(e)}") 
-        return "*(glitches)* Damn cell service... my comms just dropped. What were you saying?"
+    data_payload = f"Opponent: {current_war_data.get('opponent_name')} | Top 5: {top_5} | Improvers: {improvers} | MIA: {mias}"
 
-# ... (Keep all your existing imports, NICKNAMES, load_jeremy_chats, and generate_ai_summary untouched) ...
+    # RETRY LOGIC (Handle 429 errors)
+    for attempt in range(3):
+        try:
+            response = client.chat.completions(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": data_payload}
+                ],
+                temperature=0.85
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            if "429" in str(e):
+                print(f"⚠️ Sarvam Rate Limit. Attempt {attempt+1}/3. Waiting...")
+                time.sleep(5)
+                continue
+            print(f"💥 SARVAM ERROR: {e}")
+            return "*(glitches)* Damn cell service... my comms just dropped. What were you saying?"
+            
+    return "*(static)* Comms are too busy right now, man. Grab me a beer and try in a minute."
 
+# ==========================================
+# 2. NATURAL CHAT GENERATOR
+# ==========================================
 def chat_with_jeremy(user_name, user_message, chat_history=""):
-    """Handles natural conversation WITH short-term memory."""
     jeremy_raw_chats = load_jeremy_chats()
-    
-    # We don't strictly need to fetch the single nickname anymore since the AI has the dictionary, 
-    # but we can pass the real name in so the AI knows who is talking.
-    
     current_activity = get_random_activity()
     
     system_prompt = f"""
@@ -150,80 +119,61 @@ def chat_with_jeremy(user_name, user_message, chat_history=""):
     You are chatting with your faction mate, {user_name}.
     
     RIGHT NOW: {current_activity}
-    Let this briefly influence your vibe or how you start your reply.
+    Speaking Style: {jeremy_raw_chats}
     
-    YOUR BACKGROUND & GUARDRAILS (STRICT!):
-    1. You are a faction scout in Torn City, and a former real-life mechanic and welder. 
-    2. You love having a couple beers, chilling with the faction, and talking about Torn wars or cars. You are proud of your fabrication work, like welding new subframes on Yamaha SXS's and reinforcing steering knuckles for long-arm Lexus GX470s.
-    3. IF anyone asks you about politics, advanced science, coding, or anything outside of Torn/Cars/Beer, DEFLECT! 
-       - Example: "Man, I'm just a guy who welds subframes and shoots greens in Torn. I don't know anything about that lol."
+    RULES: 
+    - Check nicknames in {NICKNAMES} and use them if applicable.
+    - Deflect topics outside of Torn City, cars, welding, or beer.
+    - Use the provided chat history to stay in context: {chat_history}
     
-    YOUR SPEAKING STYLE (TRAINING DATA):
-    Study Jeremy's vocabulary, slang ("cuz", "yall", "goin", "eh"), and his self-deprecating, friendly vibe from these logs:
-    <jeremy_chats>
-    {jeremy_raw_chats}
-    </jeremy_chats>
-    
-    CRITICAL INSTRUCTION FOR NAMES:
-    Check this dictionary mapping real names to their allowed nicknames: {NICKNAMES}
-    If the person you are talking to is in here, try to use ONE of their nicknames!
-    
-    RECENT CHAT CONTEXT:
-    Here is what was recently said in the channel so you can keep up with the conversation:
-    {chat_history}
-    
-    INSTRUCTIONS:
-    Keep your response casual, like a Discord text message (1-3 sentences). Don't be an overly helpful AI assistant. Be a bro. Respond directly to {user_name}'s latest message.
+    Keep it casual (1-3 sentences). Be a bro, not an assistant.
     """
     
     try:
-        # --- ADDED: generation_config with temperature to make him creative ---
-        model = genai.GenerativeModel(
-            'gemini-2.5-flash', 
-            system_instruction=system_prompt,
-            generation_config={"temperature": 0.85}
+        response = client.chat.completions(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"{user_name} says: {user_message}"}
+            ],
+            temperature=0.85
         )
-        response = model.generate_content(user_message)
-        return response.text
+        return response.choices[0].message.content
     except Exception as e:
-        print(f"💥 AI ERROR: {str(e)}") 
-        return "*(glitches)* Damn cell service... my comms just dropped. What were you saying?"
-
+        print(f"💥 SARVAM ERROR: {e}")
+        return "*(wiping grease)* Sorry man, my signal just cut out. What was that?"
 
 # ==========================================
-# LOCAL TESTING AREA
+# LOCAL TESTING AREA (15 Folks Stress Test)
 # ==========================================
 if __name__ == "__main__":
-    import os
+    #SET YOUR KEY HERE LOCALLY FOR THE TEST
     
-    # 1. HARDCODE YOUR KEY JUST FOR TESTING (Remove this before pushing to GitHub!)
-    TEST_API_KEY = "<>"
-    
-    if not os.environ.get("GEMINI_API_KEY"):
-        print("⚠️ No API key found in environment, using the hardcoded test key...")
-        genai.configure(api_key=TEST_API_KEY)
 
-    print("\n--- TEST 1: NORMAL CHAT ---")
-    chat_reply = chat_with_jeremy(
-        user_name="Spidernnam", 
-        user_message="Hey man, what's your favorite car engine?",
-        chat_history="FlipJames: I think electric cars are the future.\n"
-    )
-    print(f"CyberJeremy says:\n{chat_reply}\n")
+    print("\n--- TEST 1: CHAT VIBE ---")
+    print(chat_with_jeremy("Spidernnam", "Yo Jeremy, you think electric cars are gonna kill the hobby?"))
 
-
-    print("\n--- TEST 2: WAR SUMMARY ---")
-    # Fake war data to see if the MVP/Improver logic works
+    print("\n--- TEST 2: 15-MEMBER WAR SUMMARY ---")
     dummy_war_data = {
-        'opponent_name': 'Test Faction',
-        'total_rep_after': 15000.5,
+        'opponent_name': 'The Velvet Cartel',
+        'total_rep_after': 42069.8,
         'members': [
-            {'name': 'Star_vader', 'war_hits': 150, 'rep_gained': 2000},
-            {'name': 'Spidernnam', 'war_hits': 100, 'rep_gained': 1500},
-            {'name': 'FlipJames', 'war_hits': 12, 'rep_gained': 200},  # Improver
-            {'name': 'ChineseGandalf', 'war_hits': 0, 'rep_gained': 0} # MIA
+            {'name': 'Star_vader', 'war_hits': 165, 'rep_gained': 3200.5},
+            {'name': 'Spidernnam', 'war_hits': 142, 'rep_gained': 2850.2},
+            {'name': 'RockStarDad', 'war_hits': 110, 'rep_gained': 2100.0},
+            {'name': 'ChineseGandalf', 'war_hits': 95, 'rep_gained': 1950.8},
+            {'name': 'Xtatik', 'war_hits': 88, 'rep_gained': 1800.3},
+            {'name': 'Kaemani', 'war_hits': 75, 'rep_gained': 1200.0}, 
+            {'name': 'Aberwarum', 'war_hits': 68, 'rep_gained': 1100.5},
+            {'name': 'QuickShot_99', 'war_hits': 55, 'rep_gained': 900.2},
+            {'name': 'FlipJames', 'war_hits': 0, 'rep_gained': 0}, 
+            {'name': 'Old_Timer_Bob', 'war_hits': 0, 'rep_gained': 0},
+            {'name': 'Ghost_User', 'war_hits': 0, 'rep_gained': 0},
+            {'name': 'BulletProof', 'war_hits': 45, 'rep_gained': 750.0},
+            {'name': 'WrenchMonkey', 'war_hits': 42, 'rep_gained': 700.1},
+            {'name': 'Torn_Addict', 'war_hits': 38, 'rep_gained': 600.5},
+            {'name': 'LowLevelLarry', 'war_hits': 15, 'rep_gained': 250.0}
         ]
     }
     
-    summary_reply = generate_ai_summary(dummy_war_data)
-    print(f"CyberJeremy Summary:\n{summary_reply}\n")
+    print(generate_ai_summary(dummy_war_data))
