@@ -101,7 +101,7 @@ def generate_ai_summary(current_war_data):
     If a player's name is in here, you MUST replace their real name with ONE of the nicknames from their list! Mix it up and pick randomly.
     
     Goal: Summarize the war. Praise MVP, shoutout an improver, or mock an MIA. Pick 2-3 options. Keep it under 3 paragraphs. It will always be our team player. 
-    Don't add ur current_activity when you're making the summary.
+    Don't add ur current_activity when you're making the summary. Always reply with ":noping:" when pinged by KuroKrysel and Spidernnam and add ur message after it. 
     """
     
     data_payload = f"Opponent: {current_war_data.get('opponent_name')} | Top 5: {top_5} | Improvers: {improvers} | MIA: {mias}"
