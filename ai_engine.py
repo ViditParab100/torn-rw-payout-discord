@@ -1,12 +1,10 @@
 import os
-# MONGO_URI and SARVAM_API_KEY: set in Windows User env or Render (Settings → Environment).
 import random
 import time
 from sarvamai import SarvamAI
 import memory_db
 
 # 1. Configure Sarvam AI Client
-# Make sure to set SARVAM_API_KEY in your Render environment variables!
 SARVAM_KEY = os.environ.get("SARVAM_API_KEY")
 client = SarvamAI(api_subscription_key=SARVAM_KEY)
 MODEL_NAME = "sarvam-105b"
@@ -42,14 +40,12 @@ NICKNAMES = {
     "DontBustMyBalls" : ["DBMB", "Master"],
     "Mythkiller" : ["Myth", "Piyush", "Pi"],
     "MarmotMenace" : ["Marmot"]
-
 }
 
 def load_jeremy_chats():
     try:
         with open("Ranger Chats.txt", "r", encoding="utf-8") as file:
             lines = file.readlines()
-            # Taking the last 50 lines keeps the prompt context high-quality but slim
             return "".join(lines[-50:])
     except FileNotFoundError:
         return "(Chat logs not found.)"
@@ -71,8 +67,8 @@ def get_random_activity():
 def generate_ai_summary(current_war_data):
     history = memory_db.get_last_5_wars_stats()
     jeremy_raw_chats = load_jeremy_chats()
+    milestones = memory_db.get_faction_milestones()
     
-    # --- PYTHON PRE-FILTERING ---
     members = current_war_data.get('members', [])
     sorted_by_rep = sorted(members, key=lambda x: x['rep_gained'], reverse=True)
     top_5 = [{'name': m['name'], 'hits': m['war_hits'], 'rep': m['rep_gained']} for m in sorted_by_rep[:5]]
@@ -89,24 +85,24 @@ def generate_ai_summary(current_war_data):
                 improvers.append({'name': name, 'hits': hits, 'old_avg': round(past_avg, 1)})
     
     improvers, mias = improvers[:3], mias[:5]
-    current_activity = get_random_activity()
 
     system_prompt = f"""
     You are CyberJeremy, a digital construct of a late Torn member named Jeremy.
-    Speaking Style: {jeremy_raw_chats}
-    Right Now: {current_activity}
+    Style: {jeremy_raw_chats}
+    
+    FACTION MILESTONES (WALL OF FAME):
+    {milestones}
     
     CRITICAL INSTRUCTION FOR NAMES:
     Check this dictionary: {NICKNAMES}
-    If a player's name is in here, you MUST replace their real name with ONE of the nicknames from their list! Mix it up and pick randomly. Only Faction mates will call you.
+    You MUST replace real names with nicknames!
     
-    Goal: Summarize the war. Praise MVP, shoutout an improver, or mock an MIA. Pick 2-3 options. Keep it under 3 paragraphs. It will always be our Faction player. 
-    Don't add ur current_activity when you're making the summary. Always reply with ":noPing:" when called by players with 'Kuro' and 'Spider' in their name strings and add ur message after it. 
+    Goal: Summarize the war. Praise MVP, shoutout an improver, or mock an MIA. 
+    Keep it under 3 paragraphs. Do NOT include ur current activity here.
     """
     
     data_payload = f"Opponent: {current_war_data.get('opponent_name')} | Top 5: {top_5} | Improvers: {improvers} | MIA: {mias}"
 
-    # RETRY LOGIC (Handle 429 errors)
     for attempt in range(3):
         try:
             response = client.chat.completions(
@@ -120,35 +116,46 @@ def generate_ai_summary(current_war_data):
             return response.choices[0].message.content
         except Exception as e:
             if "429" in str(e):
-                print(f"⚠️ Sarvam Rate Limit. Attempt {attempt+1}/3. Waiting...")
                 time.sleep(5)
                 continue
-            print(f"💥 SARVAM ERROR: {e}")
-            return "*(glitches)* Damn cell service... my comms just dropped. What were you saying?"
+            return "*(glitches)* Comms dropped. What were we sayin'?"
             
-    return "*(static)* Comms are too busy right now, man. Grab me a beer and try in a minute."
+    return "*(static)* Grab me a beer, signal's dead."
 
 # ==========================================
-# 2. NATURAL CHAT GENERATOR
+# 2. NATURAL CHAT GENERATOR (Living Memory)
 # ==========================================
 def chat_with_jeremy(user_name, user_message, chat_history=""):
     jeremy_raw_chats = load_jeremy_chats()
     current_activity = get_random_activity()
     
+    # FETCH LORE AND MILESTONES
+    player_lore = memory_db.get_player_lore(user_name)
+    milestones = memory_db.get_faction_milestones()
+    
     system_prompt = f"""
-    You are CyberJeremy, an AI digital ghost created by 'Star_vader' to honor the late faction member, Jeremy.
+    You are CyberJeremy, an AI digital ghost created by 'Star_vader' to honor Jeremy.
     You are chatting with your faction mate, {user_name}.
+    
+    YOUR HOME: You live in North Brampton/Caledon area, right off the 410.
+    WHAT YOU REMEMBER ABOUT {user_name}: {player_lore}
+    FACTION MILESTONES: {milestones}
     
     RIGHT NOW: {current_activity}
     Speaking Style: {jeremy_raw_chats}
     
     RULES: 
-    - Check nicknames in {NICKNAMES} and use them if applicable.
+    - Check nicknames in {NICKNAMES} and use them.
     - Deflect topics outside of Torn City, cars, welding, or beer.
-    - Use the provided chat history to stay in context: {chat_history}
-    - You can look the net for information on topics related to Gym training and Ranked wars in Torn City
+    - Context: {chat_history}
+    - ALWAYS reply with ":noPing:" at the start if the user has 'Kuro' or 'Spider' in their name.
     
-    Keep it casual (1-3 sentences). Be a bro, not an assistant.
+    SAVING LORE (MUST USE):
+    If you learn something new (where they live, job, funny fact), you MUST add it at the end like this:
+    [MEM: {user_name} | the fact]
+    If a faction achievement is mentioned: [MILESTONE: the achievement]
+    
+    Keep it casual (1-3 sentences). Be a bro.
     """
     
     try:
@@ -162,33 +169,12 @@ def chat_with_jeremy(user_name, user_message, chat_history=""):
         )
         return response.choices[0].message.content
     except Exception as e:
-        print(f"💥 SARVAM ERROR: {e}")
-        return "*(wiping grease)* Sorry man, my signal just cut out. What was that?"
+        return "*(wiping grease)* Signal just cut out. Say that again?"
 
 # ==========================================
-# LOCAL TESTING AREA (15 Folks Stress Test)
+# LOCAL TESTING AREA
 # ==========================================
 if __name__ == "__main__":
-    #SET YOUR KEY HERE LOCALLY FOR THE TEST
-    
-
-    print("\n--- TEST 1: CHAT VIBE ---")
-    print(chat_with_jeremy("Spidernnam", "Yo Jeremy, you think electric cars are gonna kill the hobby?"))
-
-    print("\n--- TEST 2: 15-MEMBER WAR SUMMARY ---")
-    dummy_war_data = {
-        'opponent_name': 'The Velvet Cartel',
-        'total_rep_after': 42069.8,
-        'members': [
-            {'name': 'Star_vader', 'war_hits': 165, 'rep_gained': 3200.5},
-            {'name': 'Spidernnam', 'war_hits': 142, 'rep_gained': 2850.2},
-            {'name': 'RockStarDad', 'war_hits': 110, 'rep_gained': 2100.0},
-            {'name': 'ChineseGandalf', 'war_hits': 95, 'rep_gained': 1950.8},
-            {'name': 'Xtatik', 'war_hits': 88, 'rep_gained': 1800.3},
-            {'name': 'Kaemani', 'war_hits': 75, 'rep_gained': 1200.0}, 
-            {'name': 'Aberwarum', 'war_hits': 68, 'rep_gained': 1100.5},
-            {'name': 'FlipJames', 'war_hits': 0, 'rep_gained': 0}
-        ]
-    }
-    
-    print(generate_ai_summary(dummy_war_data))
+    # Test a memory-forming interaction
+    print("\n--- TEST: LORE EXTRACTION ---")
+    print(chat_with_jeremy("Spidernnam", "Yo Jeremy, I just got a job as a pilot and moved to London!"))

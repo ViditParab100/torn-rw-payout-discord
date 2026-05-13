@@ -7,6 +7,7 @@ from flask import Flask
 from threading import Thread
 import os
 import asyncio
+import re  # <--- NEW: Required for extracting Jeremy's memories
 
 import ai_engine
 import chart_generator
@@ -20,7 +21,6 @@ def home():
     return "Bot is online!"
 
 def run_web_server():
-    # Render assigns a port dynamically
     port = int(os.environ.get("PORT", 10000)) 
     app.run(host='0.0.0.0', port=port)
 
@@ -38,31 +38,18 @@ class RWBot(commands.Bot):
 
 bot = RWBot()
 
-# ==========================================
-# THE SCOUT / WAR REPORT COMMAND
-# ==========================================
-
-
 @bot.event
 async def on_message(message):
-    # 1. Ignore messages from the bot itself
     if message.author == bot.user:
         return
 
-    # 2. Check if CyberJeremy was @mentioned
     if bot.user.mentioned_in(message):
-        
-        # Remove the bot's @ping from the text
         clean_message = message.content.replace(f'<@{bot.user.id}>', '').strip().lower()
         if not clean_message:
             clean_message = "Hey buddy."
 
-        # Define keywords that trigger a War Report
         scout_keywords = ["scout", "war report", "stats", "war summary", "how are we doing", "status"]
         
-        # --- ROUTE A: THE SCOUT / WAR REPORT ---
-        # --- Update this part of your on_message in bot.py ---
-
         # --- ROUTE A: THE SCOUT / WAR REPORT ---
         if any(keyword in clean_message for keyword in scout_keywords):
             async with message.channel.typing():
@@ -72,63 +59,80 @@ async def on_message(message):
                     return
 
                 try:
-                    # 1. First status update
-                    status_msg = await message.channel.send("*Grabbin' my binoculars, let me see what's happenin'...*")
-                    
-                    # 2. Fetch Data
+                    # 1. Fetch War Data
                     war_data = main_logic.process_war_request(api_key, 0, 0, 0, 0, 0, force_update=False)
                     
-                    # 3. Generate AI Summary (And print to terminal to verify it's working!)
+                    # 2. Generate AI Summary
                     ai_summary = ai_engine.generate_ai_summary(war_data)
-                    print(f"DEBUG: AI Summary Output -> {ai_summary}") # <--- Check your terminal for this!
-
-                    # 4. Generate Charts
+                    
+                    # 3. Generate Charts
                     clean_opp_name = war_data['opponent_name'].replace(" ", "")
                     base_name = f"War_{clean_opp_name}_{war_data['war_id']}"
                     chart_paths = chart_generator.generate_war_charts(war_data, base_name)
                     
-                    # 5. Safety: If AI failed, use a fallback so the message isn't empty
-                    final_content = ai_summary if ai_summary else "*(Jeremy scratches his head)* My comms are fuzzy, but here's the data anyway."
-                    
-                    # 6. Send everything
+                    # 4. Cleanup/Fallback Logic
+                    final_text = ai_summary if ai_summary else "*(Jeremy wipes grease off his hands)* Stats are in, looks like a good scrap."
                     discord_files = [discord.File(path) for path in chart_paths]
-                    await message.channel.send(content=final_content, files=discord_files)
                     
-                    # Cleanup
-                    await status_msg.delete() # Remove the "binoculars" message to keep chat clean
+                    # 5. Send Summary + Charts in ONE message
+                    await message.channel.send(content=final_text, files=discord_files)
+
+                    # Cleanup image files
                     for path in chart_paths:
                         if os.path.exists(path): os.remove(path)
 
                 except Exception as e:
                     print(f"CRITICAL ERROR IN SCOUT: {e}")
-                    await message.channel.send(f"❌ **CyberJeremy Error:** Something went wrong in the shop. Check my logs.")
+                    await message.channel.send(f"❌ **CyberJeremy Error:** Something's wrong in the shop. Check my logs.")
 
-        # --- ROUTE B: NORMAL CHAT WITH MEMORY ---
+        # --- ROUTE B: NORMAL CHAT WITH STEALTH MEMORY ---
         else:
             async with message.channel.typing():
-                # Fetch the last 7 messages in the channel to build short-term memory
+                # Fetch recent history for context
                 raw_history = [msg async for msg in message.channel.history(limit=7)]
-                raw_history.reverse() # Put them in chronological order
+                raw_history.reverse()
                 
-                # Format the history into a readable script for the AI
                 history_text = ""
                 for msg in raw_history:
-                    # Skip the current message we are responding to
                     if msg.id != message.id:
-                        speaker = msg.author.display_name
-                        history_text += f"{speaker}: {msg.content}\n"
+                        history_text += f"{msg.author.display_name}: {msg.content}\n"
 
-                # Send it all to the AI Engine
+                # Get AI Response
                 ai_reply = ai_engine.chat_with_jeremy(
                     user_name=message.author.display_name, 
                     user_message=clean_message,
                     chat_history=history_text
                 )
-                
-                await message.channel.send(ai_reply)
 
-    # 3. Process Slash Commands (like /payout and /set_key)
+                # ==========================================
+                # STEALTH EXTRACTION LOGIC
+                # ==========================================
+                # 1. Extract Lore [MEM: Name | Fact]
+                lore_matches = re.findall(r"\[MEM:\s*(.*?)\s*\|\s*(.*?)\]", ai_reply)
+                for target_user, fact in lore_matches:
+                    # We save lore using the current speaker's ID if the AI is talking to/about them
+                    memory_db.update_player_lore(message.author.id, target_user, fact)
+                    print(f"🧠 Jeremy remembered: {target_user} -> {fact}")
+
+                # 2. Extract Milestones [MILESTONE: Achievement]
+                milestone_matches = re.findall(r"\[MILESTONE:\s*(.*?)\]", ai_reply)
+                for achievement in milestone_matches:
+                    memory_db.add_faction_milestone(achievement)
+                    print(f"🏆 Milestone added: {achievement}")
+
+                # 3. WIPE THE TAGS so they stay hidden
+                final_reply = re.sub(r"\[MEM:.*?\]", "", ai_reply)
+                final_reply = re.sub(r"\[MILESTONE:.*?\]", "", final_reply).strip()
+
+                # 4. Final Send
+                if not final_reply: 
+                    final_reply = "*(Jeremy just nods and goes back to work)*"
+                
+                await message.channel.send(final_reply)
+
     await bot.process_commands(message)
+
+# ... (Keep /set_key and /payout exactly as you have them) ...
 
 # ==========================================
 # THE VAULT COMMAND
