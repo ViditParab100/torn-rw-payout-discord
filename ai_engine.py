@@ -1,5 +1,6 @@
 import google.generativeai as genai
 import os
+import random # <--- ADDED: To make him unpredictable
 os.environ["MONGO_URI"] = "mongodb+srv://viditparab100_db_user:<>@cluster0.dri3qih.mongodb.net/"
 import memory_db
 
@@ -24,6 +25,19 @@ def load_jeremy_chats():
             return file.read()
     except FileNotFoundError:
         return "(Chat logs not found.)"
+
+# --- ADDED: The Activity Injector ---
+def get_random_activity():
+    activities = [
+        "You just finished welding a subframe on a Yamaha SXS and you're wiping grease off your hands.",
+        "You are currently drinking a cold beer in the garage.",
+        "You are admiring the heavy-duty gusseting you just did on some steering knuckles for a Lexus GX470.",
+        "You just woke up from a nap on a shop creeper.",
+        "You are loading ammo into your rifle for the next chain.",
+        "You are trying to find the 10mm socket you just dropped."
+    ]
+    return random.choice(activities)
+
 
 def generate_ai_summary(current_war_data):
     history = memory_db.get_last_5_wars_stats()
@@ -62,9 +76,14 @@ def generate_ai_summary(current_war_data):
     # ==========================================
     # AI PROMPT & GENERATION
     # ==========================================
+    current_activity = get_random_activity()
+    
     system_prompt = f"""
     You are CyberJeremy, an AI construct created by 'Star_vader'. 
     You were built to carry on the legacy of the late faction member, Jeremy.
+    
+    RIGHT NOW: {current_activity}
+    Let this briefly influence how you start your message.
     
     YOUR SPEAKING STYLE (TRAINING DATA):
     Below are actual messages sent by the original Jeremy. Study his vocabulary, his use of slang (like "cuz", "yall", "goin"), his casual punctuation, and his overall vibe. 
@@ -75,11 +94,15 @@ def generate_ai_summary(current_war_data):
     </jeremy_chats>
     
     Your Task:
-    Write a short Discord message summarizing the war data.
-    1. Acknowledge your Maker (Star_vader) or your status as CyberJeremy.
-    2. Praise the MVP (highest respect from the Top 5 list).
-    3. Shoutout the folks in the "Improvers" list for stepping up.
-    4. Lightly poke fun at the folks in the "MIA" list for falling asleep or drinking too much beer.
+    Write a short Discord message summarizing the war data. 
+    DO NOT sound like a broken record. Mix it up!
+    
+    Pick ONLY 2 OR 3 of the following things to talk about (ignore the rest):
+    - Praise the MVP (highest respect from the Top 5 list).
+    - Shoutout an "Improver" for stepping up.
+    - Poke fun at an "MIA" player for falling asleep.
+    - Acknowledge your Maker (Star_vader).
+    - Complain about the opponent faction.
     
     CRITICAL INSTRUCTION FOR NAMES:
     Check this dictionary mapping real names to their allowed nicknames: {NICKNAMES}
@@ -88,7 +111,6 @@ def generate_ai_summary(current_war_data):
     Format: Use Discord markdown. Keep it under 3 paragraphs.
     """
     
-    # Now we only send the filtered lists, saving thousands of tokens!
     data_payload = f"""
     --- CURATED WAR STATS ---
     Opponent: {current_war_data.get('opponent_name', 'Unknown')}
@@ -100,11 +122,16 @@ def generate_ai_summary(current_war_data):
     """
     
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=system_prompt)
+        # --- ADDED: generation_config with temperature to make him creative ---
+        model = genai.GenerativeModel(
+            'gemini-2.5-flash', 
+            system_instruction=system_prompt,
+            generation_config={"temperature": 0.85}
+        )
         response = model.generate_content(data_payload)
         return response.text
     except Exception as e:
-        print(f"💥 AI ERROR: {str(e)}") # <--- ADD THIS LINE
+        print(f"💥 AI ERROR: {str(e)}") 
         return "*(glitches)* Damn cell service... my comms just dropped. What were you saying?"
 
 # ... (Keep all your existing imports, NICKNAMES, load_jeremy_chats, and generate_ai_summary untouched) ...
@@ -112,11 +139,18 @@ def generate_ai_summary(current_war_data):
 def chat_with_jeremy(user_name, user_message, chat_history=""):
     """Handles natural conversation WITH short-term memory."""
     jeremy_raw_chats = load_jeremy_chats()
-    display_name = NICKNAMES.get(user_name, user_name)
+    
+    # We don't strictly need to fetch the single nickname anymore since the AI has the dictionary, 
+    # but we can pass the real name in so the AI knows who is talking.
+    
+    current_activity = get_random_activity()
     
     system_prompt = f"""
     You are CyberJeremy, an AI digital ghost created by 'Star_vader' to honor the late faction member, Jeremy.
-    You are chatting with your faction mate, {display_name}.
+    You are chatting with your faction mate, {user_name}.
+    
+    RIGHT NOW: {current_activity}
+    Let this briefly influence your vibe or how you start your reply.
     
     YOUR BACKGROUND & GUARDRAILS (STRICT!):
     1. You are a faction scout in Torn City, and a former real-life mechanic and welder. 
@@ -130,20 +164,29 @@ def chat_with_jeremy(user_name, user_message, chat_history=""):
     {jeremy_raw_chats}
     </jeremy_chats>
     
+    CRITICAL INSTRUCTION FOR NAMES:
+    Check this dictionary mapping real names to their allowed nicknames: {NICKNAMES}
+    If the person you are talking to is in here, try to use ONE of their nicknames!
+    
     RECENT CHAT CONTEXT:
     Here is what was recently said in the channel so you can keep up with the conversation:
     {chat_history}
     
     INSTRUCTIONS:
-    Keep your response casual, like a Discord text message (1-3 sentences). Don't be an overly helpful AI assistant. Be a bro. Respond directly to {display_name}'s latest message.
+    Keep your response casual, like a Discord text message (1-3 sentences). Don't be an overly helpful AI assistant. Be a bro. Respond directly to {user_name}'s latest message.
     """
     
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=system_prompt)
+        # --- ADDED: generation_config with temperature to make him creative ---
+        model = genai.GenerativeModel(
+            'gemini-2.5-flash', 
+            system_instruction=system_prompt,
+            generation_config={"temperature": 0.85}
+        )
         response = model.generate_content(user_message)
         return response.text
     except Exception as e:
-        print(f"💥 AI ERROR: {str(e)}") # <--- ADD THIS LINE
+        print(f"💥 AI ERROR: {str(e)}") 
         return "*(glitches)* Damn cell service... my comms just dropped. What were you saying?"
 
 
@@ -154,7 +197,6 @@ if __name__ == "__main__":
     import os
     
     # 1. HARDCODE YOUR KEY JUST FOR TESTING (Remove this before pushing to GitHub!)
-    # If os.environ.get fails on your local PC, it will use this fallback key.
     TEST_API_KEY = "<>"
     
     if not os.environ.get("GEMINI_API_KEY"):
