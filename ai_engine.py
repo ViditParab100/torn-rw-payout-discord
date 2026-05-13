@@ -21,7 +21,7 @@ NICKNAMES = {
     "RockStarDad": ["RSD", "Dad"],
     "Kaemani": ["Kae", "Partner"],
     "Aberwarum": ["Aber", "Aberwarum"],
-    "Helena" : ["Helen", "HeLen"],
+    "Helena05" : ["Helen", "HeLen"],
     "Rockless" : ["Audy", "Rockless"],
     "KuroKrysel" : ["Kuro", "Madam Kuro", "Kuxi"],
     "DaEpicGamer" : ["Epic"],
