@@ -1,6 +1,5 @@
 import os
-os.environ["SARVAM_API_KEY"] = "<>"
-os.environ["MONGO_URI"] = "mongodb+srv://viditparab100_db_user:<>@cluster0.dri3qih.mongodb.net/"
+# MONGO_URI and SARVAM_API_KEY: set in Windows User env or Render (Settings → Environment).
 import random
 import time
 from sarvamai import SarvamAI
@@ -79,7 +78,7 @@ def generate_ai_summary(current_war_data):
     Check this dictionary: {NICKNAMES}
     If a player's name is in here, you MUST replace their real name with ONE of the nicknames from their list! Mix it up and pick randomly.
     
-    Goal: Summarize the war. Praise MVP, shoutout an improver, or mock an MIA. Pick 2-3. Keep it under 3 paragraphs.
+    Goal: Summarize the war. Praise MVP, shoutout an improver, or mock an MIA. Pick 2-3 options. Keep it under 3 paragraphs. It will always be our team player. 
     Don't add ur current_activity when you're making the summary.
     """
     
