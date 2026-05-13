@@ -38,6 +38,10 @@ class RWBot(commands.Bot):
 
 bot = RWBot()
 
+# ==========================================
+# THE SCOUT / WAR REPORT COMMAND
+# ==========================================
+
 
 @bot.event
 async def on_message(message):
@@ -112,6 +116,26 @@ async def on_message(message):
 
     # 3. Process Slash Commands (like /payout and /set_key)
     await bot.process_commands(message)
+
+# ==========================================
+# THE VAULT COMMAND
+# ==========================================
+@bot.tree.command(name="set_key", description="Securely save your Torn API key to CyberJeremy's vault.")
+@app_commands.describe(api_key="Your public Torn API Key")
+async def set_key(interaction: discord.Interaction, api_key: str):
+    # Ephemeral=True ensures the key is hidden from everyone else in the server
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        memory_db.save_user_key(interaction.user.id, api_key)
+        await interaction.followup.send("✅ Key securely locked in the vault. You won't need to type it again for `/scout` or `/payout`.")
+    except Exception as e:
+        await interaction.followup.send(f"❌ Failed to lock the vault: {e}")
+
+
+# ==========================================
+# THE PAYOUT COMMAND
+# ==========================================
 
 @bot.tree.command(name="payout", description="Calculate RW Payouts (Excel + PDF)")
 @app_commands.describe(

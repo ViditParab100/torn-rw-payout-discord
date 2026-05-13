@@ -15,16 +15,20 @@ keys_collection = db["user_keys"]
 # ==========================================
 # API KEY VAULT
 # ==========================================
+# Inside memory_db.py (MongoDB version)
+
 def save_user_key(discord_id, api_key):
     """Saves or updates a user's Torn API key permanently."""
+    keys_collection = db["user_keys"]
     keys_collection.update_one(
         {"discord_id": str(discord_id)}, 
         {"$set": {"api_key": api_key}}, 
-        upsert=True # Creates it if it doesn't exist, updates if it does
+        upsert=True
     )
 
 def get_user_key(discord_id):
     """Fetches the user's API key."""
+    keys_collection = db["user_keys"]
     user = keys_collection.find_one({"discord_id": str(discord_id)})
     return user["api_key"] if user else None
 
