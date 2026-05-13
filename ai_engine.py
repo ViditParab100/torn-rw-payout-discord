@@ -1,6 +1,6 @@
 import google.generativeai as genai
 import os
-os.environ["MONGO_URI"] = "mongodb+srv://viditparab100_db_user:spWK0mpW86l6h4UC@cluster0.dri3qih.mongodb.net/"
+os.environ["MONGO_URI"] = "mongodb+srv://viditparab100_db_user:<>@cluster0.dri3qih.mongodb.net/"
 import memory_db
 
 # Configure your AI Key
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     
     # 1. HARDCODE YOUR KEY JUST FOR TESTING (Remove this before pushing to GitHub!)
     # If os.environ.get fails on your local PC, it will use this fallback key.
-    TEST_API_KEY = "AIzaSyD17b535guVMocUKY8QUWNNEnd-fIULYoA"
+    TEST_API_KEY = "<>"
     
     if not os.environ.get("GEMINI_API_KEY"):
         print("⚠️ No API key found in environment, using the hardcoded test key...")
