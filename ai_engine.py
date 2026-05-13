@@ -14,13 +14,35 @@ MODEL_NAME = "sarvam-105b"
 # --- NICKNAME DATABASE ---
 NICKNAMES = {
     "Star_vader": ["Vader", "Star", "Champ", "Maker"],
-    "Spidernnam": ["Spidey", "Spider"],
+    "Spidernnam": ["Spidey", "Spider", "BotBuster"],
     "FlipJames": ["Flip", "James"],
     "ChineseGandalf": ["Boss", "CG"],
-    "Xtatik": ["X"],
+    "Xtatik": ["X", "Chief"],
     "RockStarDad": ["RSD", "Dad"],
-    "Kaemani": ["Kae"],
+    "Kaemani": ["Kae", "Partner"],
     "Aberwarum": ["Aber", "Aberwarum"],
+    "Helena" : ["Helen", "HeLen"],
+    "Rockless" : ["Audy", "Rockless"],
+    "KuroKrysel" : ["Kuro", "Madam Kuro", "Kuxi"],
+    "DaEpicGamer" : ["Epic"],
+    "Rehsirap" : ["Reh"],
+    "Xirken" :  ["Xirken"],
+    "Profu" : ["Profu", "Merit hunter"],
+    "BulletToothKep" : ["kllepel", "Bullet"],
+    "KisUziVertikal" : ["Kis" , "Uzi"],
+    "vmurda" : ["vm"],
+    "YoungDN" : ["Young", "Mr. Cop"],
+    "_Andrew_" : ["Andrew"],
+    "Drago3636" : ["Drago", "Real Star_Vader"],
+    "Craig_Demon" : ["Craig", "Demon", "Big Guy"],
+    "Venomjr"  : ["Venom"],
+    "Dizzaster007" : ["Dizz"],
+    "luriorealacc" : ["Lurio"],
+    "PetrifiedSlug" : ["Slug"],
+    "DontBustMyBalls" : ["DBMB", "Master"],
+    "Mythkiller" : ["Myth", "Piyush", "Pi"],
+    "MarmotMenace" : ["Marmot"]
+
 }
 
 def load_jeremy_chats():
@@ -164,14 +186,7 @@ if __name__ == "__main__":
             {'name': 'Xtatik', 'war_hits': 88, 'rep_gained': 1800.3},
             {'name': 'Kaemani', 'war_hits': 75, 'rep_gained': 1200.0}, 
             {'name': 'Aberwarum', 'war_hits': 68, 'rep_gained': 1100.5},
-            {'name': 'QuickShot_99', 'war_hits': 55, 'rep_gained': 900.2},
-            {'name': 'FlipJames', 'war_hits': 0, 'rep_gained': 0}, 
-            {'name': 'Old_Timer_Bob', 'war_hits': 0, 'rep_gained': 0},
-            {'name': 'Ghost_User', 'war_hits': 0, 'rep_gained': 0},
-            {'name': 'BulletProof', 'war_hits': 45, 'rep_gained': 750.0},
-            {'name': 'WrenchMonkey', 'war_hits': 42, 'rep_gained': 700.1},
-            {'name': 'Torn_Addict', 'war_hits': 38, 'rep_gained': 600.5},
-            {'name': 'LowLevelLarry', 'war_hits': 15, 'rep_gained': 250.0}
+            {'name': 'FlipJames', 'war_hits': 0, 'rep_gained': 0}
         ]
     }
     
