@@ -1,5 +1,6 @@
 import google.generativeai as genai
 import os
+os.environ["MONGO_URI"] = "mongodb+srv://viditparab100_db_user:spWK0mpW86l6h4UC@cluster0.dri3qih.mongodb.net/"
 import memory_db
 
 # Configure your AI Key
@@ -7,13 +8,14 @@ genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
 # --- NICKNAME DATABASE ---
 NICKNAMES = {
-    "Star_vader": "Maker",
-    "Spidernnam": "Spidey",
-    "FlipJames": "Flip",
-    "ChineseGandalf": "Boss",
+    "Star_vader": ["Vader", "Star", "Champ", "Maker"],
+    "Spidernnam": ["Spidey", "Spider"],
+    "FlipJames": ["Flip", "James"],
+    "ChineseGandalf": ["Boss", "CG"],
     "Xtatik": "X",
     "RockStarDad": "RSD",
     "Kaemani": "Kae",
+    "Aberwarum": ["Aber", "Aberwarum"],
 }
 
 def load_jeremy_chats():
@@ -80,8 +82,8 @@ def generate_ai_summary(current_war_data):
     4. Lightly poke fun at the folks in the "MIA" list for falling asleep or drinking too much beer.
     
     CRITICAL INSTRUCTION FOR NAMES:
-    Check this dictionary: {NICKNAMES}
-    If a player's name is in here, you MUST call them by their assigned nickname!
+    Check this dictionary mapping real names to their allowed nicknames: {NICKNAMES}
+    If a player's name is in here, you MUST replace their real name with ONE of the nicknames from their list! Mix it up and pick randomly.
     
     Format: Use Discord markdown. Keep it under 3 paragraphs.
     """
@@ -98,11 +100,12 @@ def generate_ai_summary(current_war_data):
     """
     
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash', system_instruction=system_prompt)
+        model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=system_prompt)
         response = model.generate_content(data_payload)
         return response.text
     except Exception as e:
-        return f"*(CyberJeremy's systems glitch)* Damn cell service got me killed. Error: {e}"
+        print(f"💥 AI ERROR: {str(e)}") # <--- ADD THIS LINE
+        return "*(glitches)* Damn cell service... my comms just dropped. What were you saying?"
 
 # ... (Keep all your existing imports, NICKNAMES, load_jeremy_chats, and generate_ai_summary untouched) ...
 
@@ -116,10 +119,10 @@ def chat_with_jeremy(user_name, user_message, chat_history=""):
     You are chatting with your faction mate, {display_name}.
     
     YOUR BACKGROUND & GUARDRAILS (STRICT!):
-    1. You are a faction scout in Torn City, and a former real-life mechanic. You know a LOT about cars, engines, and fixing vehicles.
-    2. You love having a couple beers, chilling with the faction, and talking about Torn wars or cars.
+    1. You are a faction scout in Torn City, and a former real-life mechanic and welder. 
+    2. You love having a couple beers, chilling with the faction, and talking about Torn wars or cars. You are proud of your fabrication work, like welding new subframes on Yamaha SXS's and reinforcing steering knuckles for long-arm Lexus GX470s.
     3. IF anyone asks you about politics, advanced science, coding, or anything outside of Torn/Cars/Beer, DEFLECT! 
-       - Example: "Man, I just turn wrenches and shoot greens in Torn, I have no clue what you're talking about lol."
+       - Example: "Man, I'm just a guy who welds subframes and shoots greens in Torn. I don't know anything about that lol."
     
     YOUR SPEAKING STYLE (TRAINING DATA):
     Study Jeremy's vocabulary, slang ("cuz", "yall", "goin", "eh"), and his self-deprecating, friendly vibe from these logs:
@@ -136,8 +139,49 @@ def chat_with_jeremy(user_name, user_message, chat_history=""):
     """
     
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash', system_instruction=system_prompt)
+        model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=system_prompt)
         response = model.generate_content(user_message)
         return response.text
     except Exception as e:
+        print(f"💥 AI ERROR: {str(e)}") # <--- ADD THIS LINE
         return "*(glitches)* Damn cell service... my comms just dropped. What were you saying?"
+
+
+# ==========================================
+# LOCAL TESTING AREA
+# ==========================================
+if __name__ == "__main__":
+    import os
+    
+    # 1. HARDCODE YOUR KEY JUST FOR TESTING (Remove this before pushing to GitHub!)
+    # If os.environ.get fails on your local PC, it will use this fallback key.
+    TEST_API_KEY = "AIzaSyD17b535guVMocUKY8QUWNNEnd-fIULYoA"
+    
+    if not os.environ.get("GEMINI_API_KEY"):
+        print("⚠️ No API key found in environment, using the hardcoded test key...")
+        genai.configure(api_key=TEST_API_KEY)
+
+    print("\n--- TEST 1: NORMAL CHAT ---")
+    chat_reply = chat_with_jeremy(
+        user_name="Spidernnam", 
+        user_message="Hey man, what's your favorite car engine?",
+        chat_history="FlipJames: I think electric cars are the future.\n"
+    )
+    print(f"CyberJeremy says:\n{chat_reply}\n")
+
+
+    print("\n--- TEST 2: WAR SUMMARY ---")
+    # Fake war data to see if the MVP/Improver logic works
+    dummy_war_data = {
+        'opponent_name': 'Test Faction',
+        'total_rep_after': 15000.5,
+        'members': [
+            {'name': 'Star_vader', 'war_hits': 150, 'rep_gained': 2000},
+            {'name': 'Spidernnam', 'war_hits': 100, 'rep_gained': 1500},
+            {'name': 'FlipJames', 'war_hits': 12, 'rep_gained': 200},  # Improver
+            {'name': 'ChineseGandalf', 'war_hits': 0, 'rep_gained': 0} # MIA
+        ]
+    }
+    
+    summary_reply = generate_ai_summary(dummy_war_data)
+    print(f"CyberJeremy Summary:\n{summary_reply}\n")
