@@ -145,15 +145,30 @@ def process_war_and_get_files(api_key, total_payout_money, medical_cost, assist_
 # --- NEW ADDITIONS FOR MEMORY & ANALYTICS ---
 
 def recalculate_money(cached_data, new_payout, new_med, new_assist):
-    """Updates cash payouts without re-running the Torn API."""
+    """Updates cash payouts safely, handling both Full and Slim DB caches."""
     cached_data['initial_payout'] = new_payout
     cached_data['medical_cost'] = new_med
     cached_data['assist_pay'] = new_assist
-    cached_data['total_assists_pay'] = cached_data['total_assists'] * new_assist
+    
+    # 1. Safely get assists (Defaults to 0 if this is a slim AI cache)
+    total_assists = cached_data.get('total_assists', 0)
+    cached_data['total_assists_pay'] = total_assists * new_assist
+    
+    # 2. Safely get newbie bonus
+    newbie_bonus = cached_data.get('newbie_bonus_total', 0)
+    
+    # 3. Safely get total respect. If it's a slim cache, we just add up the members' respect manually!
+    if 'total_rep_after' in cached_data:
+        total_rep = cached_data['total_rep_after']
+    else:
+        total_rep = sum(m.get('rep_gained', 0) for m in cached_data.get('members', []))
+        
+    cached_data['total_rep_after'] = total_rep
     
     # Recalculate price per rep pool
-    pool = (new_payout * 0.9) - new_med - cached_data['newbie_bonus_total'] - cached_data['total_assists_pay']
-    cached_data['price_per_rep'] = pool / cached_data['total_rep_after'] if cached_data['total_rep_after'] > 0 else 0
+    pool = (new_payout * 0.9) - new_med - newbie_bonus - cached_data['total_assists_pay']
+    cached_data['price_per_rep'] = pool / total_rep if total_rep > 0 else 0
+    
     cached_data['_was_cached'] = True # Flag for the Ranger to know
     return cached_data
 
