@@ -61,34 +61,47 @@ async def on_message(message):
         scout_keywords = ["scout", "war report", "stats", "war summary", "how are we doing", "status"]
         
         # --- ROUTE A: THE SCOUT / WAR REPORT ---
+        # --- Update this part of your on_message in bot.py ---
+
+        # --- ROUTE A: THE SCOUT / WAR REPORT ---
         if any(keyword in clean_message for keyword in scout_keywords):
             async with message.channel.typing():
-                # Get user's key from your MongoDB/SQLite vault
                 api_key = memory_db.get_user_key(message.author.id)
                 if not api_key:
-                    await message.channel.send(f"Hey {message.author.display_name}, I don't have your API key. Run `/set_key` first so I can check the logs.")
+                    await message.channel.send(f"Hey {message.author.display_name}, I need your key first. Run `/set_key`.")
                     return
 
                 try:
-                    await message.channel.send("*Give me a sec, grabbin my binoculars...*")
+                    # 1. First status update
+                    status_msg = await message.channel.send("*Grabbin' my binoculars, let me see what's happenin'...*")
                     
-                    # Fetch data, generate AI text, and build charts
+                    # 2. Fetch Data
                     war_data = main_logic.process_war_request(api_key, 0, 0, 0, 0, 0, force_update=False)
-                    ai_summary = ai_engine.generate_ai_summary(war_data)
                     
+                    # 3. Generate AI Summary (And print to terminal to verify it's working!)
+                    ai_summary = ai_engine.generate_ai_summary(war_data)
+                    print(f"DEBUG: AI Summary Output -> {ai_summary}") # <--- Check your terminal for this!
+
+                    # 4. Generate Charts
                     clean_opp_name = war_data['opponent_name'].replace(" ", "")
                     base_name = f"War_{clean_opp_name}_{war_data['war_id']}"
                     chart_paths = chart_generator.generate_war_charts(war_data, base_name)
-                    discord_files = [discord.File(path) for path in chart_paths]
                     
-                    await message.channel.send(content=ai_summary, files=discord_files)
-
-                    # Cleanup images
+                    # 5. Safety: If AI failed, use a fallback so the message isn't empty
+                    final_content = ai_summary if ai_summary else "*(Jeremy scratches his head)* My comms are fuzzy, but here's the data anyway."
+                    
+                    # 6. Send everything
+                    discord_files = [discord.File(path) for path in chart_paths]
+                    await message.channel.send(content=final_content, files=discord_files)
+                    
+                    # Cleanup
+                    await status_msg.delete() # Remove the "binoculars" message to keep chat clean
                     for path in chart_paths:
                         if os.path.exists(path): os.remove(path)
 
                 except Exception as e:
-                    await message.channel.send(f"❌ **CyberJeremy Error:** {str(e)}")
+                    print(f"CRITICAL ERROR IN SCOUT: {e}")
+                    await message.channel.send(f"❌ **CyberJeremy Error:** Something went wrong in the shop. Check my logs.")
 
         # --- ROUTE B: NORMAL CHAT WITH MEMORY ---
         else:
