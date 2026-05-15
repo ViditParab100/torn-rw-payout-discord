@@ -125,12 +125,9 @@ def generate_ai_summary(current_war_data):
 # ==========================================
 # 2. NATURAL CHAT GENERATOR (Living Memory)
 # ==========================================
-def chat_with_jeremy(user_name, user_message, chat_history=""):
+def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=""):
     jeremy_raw_chats = load_jeremy_chats()
     current_activity = get_random_activity()
-    
-    # FETCH LORE AND MILESTONES
-    player_lore = memory_db.get_player_lore(user_name)
     milestones = memory_db.get_faction_milestones()
     
     system_prompt = f"""
@@ -138,8 +135,12 @@ def chat_with_jeremy(user_name, user_message, chat_history=""):
     You are chatting with your faction mate, {user_name}.
     
     YOUR HOME: You live in North Brampton/Caledon area, right off the 410.
-    WHAT YOU REMEMBER ABOUT {user_name}: {player_lore}
-    FACTION MILESTONES: {milestones}
+    
+    WHAT YOU CURRENTLY KNOW (Memory Files for everyone mentioned):
+    {associative_lore}
+    
+    FACTION MILESTONES: 
+    {milestones}
     
     RIGHT NOW: {current_activity}
     Speaking Style: {jeremy_raw_chats}
@@ -150,10 +151,12 @@ def chat_with_jeremy(user_name, user_message, chat_history=""):
     - Context: {chat_history}
     - ALWAYS reply with ":noPing:" at the start if the user has 'Kuro' or 'Spider' in their name.
     
-    SAVING LORE (MUST USE):
-    If you learn something new (where they live, job, funny fact), you MUST add it at the end like this:
-    [MEM: {user_name} | the fact]
-    If a faction achievement is mentioned: [MILESTONE: the achievement]
+    THE MEMORY SYSTEM (CRITICAL):
+    If you learn BRAND NEW information about a player or faction, save it at the end.
+    Format: [SAVE_LORE: PlayerName | The new fact]
+    Format: [MILESTONE: The achievement]
+    
+    ANTI-LOOP RULE: Do NOT use [SAVE_LORE] if the fact is already listed in your "WHAT YOU CURRENTLY KNOW" section. Only save things you didn't know 10 seconds ago.
     
     Keep it casual (1-3 sentences). Be a bro.
     """
@@ -175,6 +178,10 @@ def chat_with_jeremy(user_name, user_message, chat_history=""):
 # LOCAL TESTING AREA
 # ==========================================
 if __name__ == "__main__":
-    # Test a memory-forming interaction
+    # Test associative memory
     print("\n--- TEST: LORE EXTRACTION ---")
-    print(chat_with_jeremy("Spidernnam", "Yo Jeremy, I just got a job as a pilot and moved to London!"))
+    print(chat_with_jeremy(
+        user_name="Spidernnam", 
+        user_message="Did you hear ChineseGandalf bought a new house in Texas?",
+        associative_lore="[Spidernnam's File]: Likes electric cars.\n[ChineseGandalf's File]: Nothing known yet."
+    ))

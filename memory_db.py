@@ -83,16 +83,16 @@ def get_last_5_wars_stats():
 # DYNAMIC LORE (Jeremy's Personal Memories)
 # ==========================================
 
-def update_player_lore(discord_id, username, new_bit):
-    """Adds a new memory to a player's file. Keeps only the 10 most recent."""
+def update_player_lore(username, new_bit):
+    """Adds a new memory to a player's file using their Name as the key."""
     lore_col.update_one(
-        {"discord_id": str(discord_id)},
+        {"username": username.lower()}, # Standardize to lowercase for searching
         {
-            "$set": {"username": username},
+            "$set": {"username_display": username},
             "$push": {
                 "lore_bits": {
                     "$each": [new_bit],
-                    "$slice": -10  # Automatically trims oldest memories
+                    "$slice": -10 
                 }
             }
         },
@@ -100,9 +100,8 @@ def update_player_lore(discord_id, username, new_bit):
     )
 
 def get_player_lore(username):
-    """Fetches combined memory string for Jeremy's context."""
-    # Jeremy identifies people by the names he 'hears' in chat
-    data = lore_col.find_one({"username": username})
+    """Fetches combined memory string."""
+    data = lore_col.find_one({"username": username.lower()})
     if data and "lore_bits" in data:
         return " | ".join(data["lore_bits"])
     return "Nothing known yet."

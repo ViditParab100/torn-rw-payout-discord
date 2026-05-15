@@ -88,7 +88,7 @@ async def on_message(message):
         # --- ROUTE B: NORMAL CHAT WITH STEALTH MEMORY ---
         else:
             async with message.channel.typing():
-                # Fetch recent history for context
+                # 1. Fetch recent history for context
                 raw_history = [msg async for msg in message.channel.history(limit=7)]
                 raw_history.reverse()
                 
@@ -97,36 +97,56 @@ async def on_message(message):
                     if msg.id != message.id:
                         history_text += f"{msg.author.display_name}: {msg.content}\n"
 
-                # Get AI Response
+                # 2. ASSOCIATIVE MEMORY: Who are we talking about?
+                speaker_name = message.author.display_name
+                people_to_load = [speaker_name] # Always load the speaker
+                
+                # Scan the message for other faction mates
+                for real_name, nicks in ai_engine.NICKNAMES.items():
+                    if real_name.lower() in clean_message.lower() or any(n.lower() in clean_message.lower() for n in nicks):
+                        if real_name not in people_to_load:
+                            people_to_load.append(real_name)
+                
+                # Fetch DB files for EVERYONE mentioned
+                combined_lore = ""
+                for person in people_to_load:
+                    # Notice we fetch by NAME now, not Discord ID!
+                    lore = memory_db.get_player_lore(person) 
+                    combined_lore += f"[{person}'s File]: {lore}\n"
+
+                # 3. Get AI Response
                 ai_reply = ai_engine.chat_with_jeremy(
-                    user_name=message.author.display_name, 
+                    user_name=speaker_name, 
                     user_message=clean_message,
-                    chat_history=history_text
+                    chat_history=history_text,
+                    associative_lore=combined_lore # Pass the new combined brain!
                 )
 
                 # ==========================================
-                # STEALTH EXTRACTION LOGIC
+                # BULLETPROOF EXTRACTION LOGIC
                 # ==========================================
-                # 1. Extract Lore [MEM: Name | Fact]
-                lore_matches = re.findall(r"\[MEM:\s*(.*?)\s*\|\s*(.*?)\]", ai_reply)
-                for target_user, fact in lore_matches:
-                    # We save lore using the current speaker's ID if the AI is talking to/about them
-                    memory_db.update_player_lore(message.author.id, target_user, fact)
-                    print(f"🧠 Jeremy remembered: {target_user} -> {fact}")
+                import re
+                
+                # Changed tag to SAVE_LORE to stop accidental triggers, and improved regex
+                lore_matches = re.findall(r"\[SAVE_LORE:\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
+                for subject, fact in lore_matches:
+                    subject = subject.strip()
+                    # We save it to the SUBJECT's file, not the speaker's ID!
+                    # You will need to tweak memory_db to just search/update by username, not ID.
+                    memory_db.update_player_lore(subject, fact) 
+                    print(f"🧠 Jeremy logged a fact about {subject}: {fact}")
 
-                # 2. Extract Milestones [MILESTONE: Achievement]
-                milestone_matches = re.findall(r"\[MILESTONE:\s*(.*?)\]", ai_reply)
+                milestone_matches = re.findall(r"\[MILESTONE:\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
                 for achievement in milestone_matches:
-                    memory_db.add_faction_milestone(achievement)
+                    memory_db.add_faction_milestone(achievement.strip())
                     print(f"🏆 Milestone added: {achievement}")
 
-                # 3. WIPE THE TAGS so they stay hidden
-                final_reply = re.sub(r"\[MEM:.*?\]", "", ai_reply)
-                final_reply = re.sub(r"\[MILESTONE:.*?\]", "", final_reply).strip()
+                # WIPE THE TAGS (Case insensitive, handles weird spacing)
+                final_reply = re.sub(r"\[SAVE_LORE:.*?\]", "", ai_reply, flags=re.IGNORECASE)
+                final_reply = re.sub(r"\[MILESTONE:.*?\]", "", final_reply, flags=re.IGNORECASE).strip()
 
-                # 4. Final Send
                 if not final_reply: 
-                    final_reply = "*(Jeremy just nods and goes back to work)*"
+                    final_reply = "*(Jeremy nods and goes back to work)*"
                 
                 await message.channel.send(final_reply)
 
