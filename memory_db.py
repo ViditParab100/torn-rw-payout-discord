@@ -14,6 +14,7 @@ wars_collection = db["wars"]
 keys_collection = db["user_keys"]
 lore_col = db["lore"]
 milestone_col = db["milestones"]
+history_col = db["faction_history"]
 
 # ==========================================
 # API KEY VAULT (Secure Storage)
@@ -121,3 +122,50 @@ def get_faction_milestones():
     """Returns the 5 most recent achievements for Jeremy to mention."""
     docs = list(milestone_col.find().sort("_id", -1).limit(5))
     return [{"Achievement": d["achievement"], "Date": d["date"]} for d in docs]
+
+
+# ==========================================
+# FACTION HISTORY (Version Controlled)
+# ==========================================
+
+def update_faction_history(topic, text, author_name):
+    """Saves a historical record. If the topic exists, it adds a new version to the array."""
+    from datetime import datetime
+    
+    # We use a lowercase topic to group things together (e.g. "The First War" == "the first war")
+    history_col.update_one(
+        {"topic_id": topic.lower().strip()},
+        {
+            "$set": {"topic_display": topic},
+            "$push": {
+                "versions": {
+                    "text": text,
+                    "author": author_name,
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+                }
+            }
+        },
+        upsert=True
+    )
+
+def get_all_history():
+    """Compiles the history, showing the paper trail of who edited what."""
+    docs = history_col.find()
+    history_str = ""
+    
+    for doc in docs:
+        topic = doc.get("topic_display", "Unknown")
+        versions = doc.get("versions", [])
+        if not versions: 
+            continue
+            
+        # If only one person recorded it:
+        if len(versions) == 1:
+            v = versions[0]
+            history_str += f"Topic [{topic}]: {v['text']} (Recorded by {v['author']})\n"
+        # If multiple people have overwritten/updated it, show the timeline:
+        else:
+            timeline = " -> ".join([f"'{v['text']}'(by {v['author']})" for v in versions[-3:]]) # Show last 3 edits
+            history_str += f"Topic [{topic}] Edit History: {timeline}\n"
+            
+    return history_str if history_str else "No historical records yet."

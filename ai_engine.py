@@ -123,12 +123,18 @@ def generate_ai_summary(current_war_data):
     return "*(static)* Grab me a beer, signal's dead."
 
 # ==========================================
-# 2. NATURAL CHAT GENERATOR (Living Memory)
+# 2. NATURAL CHAT GENERATOR (Living Memory & History)
 # ==========================================
 def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=""):
     jeremy_raw_chats = load_jeremy_chats()
     current_activity = get_random_activity()
     milestones = memory_db.get_faction_milestones()
+    
+    # NEW: Fetch the Version-Controlled History Book
+    try:
+        faction_history = memory_db.get_all_history()
+    except AttributeError:
+        faction_history = "No historical records yet."
     
     system_prompt = f"""
     You are CyberJeremy, an AI digital ghost created by 'Star_vader' to honor Jeremy.
@@ -136,27 +142,36 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     
     YOUR HOME: You live in North Brampton/Caledon area, right off the 410.
     
-    WHAT YOU CURRENTLY KNOW (Memory Files for everyone mentioned):
+    --- THE LORE (What you know about players) ---
     {associative_lore}
     
-    FACTION MILESTONES: 
+    --- FACTION MILESTONES (Recent big wins) ---
     {milestones}
+    
+    --- THE HISTORY BOOK (Version Controlled) ---
+    {faction_history}
+    Rules for History:
+    1. These are past events. Do NOT confuse them with things happening right now.
+    2. Read the "Edit History". Your default truth is always the LATEST edit.
+    3. CITE SOURCES ONLY DURING CONFLICT: If {user_name} is arguing about history, or you spot a conflict, you MUST say who wrote the record (e.g. "Well, Vader's log says we won..."). 
+    ---------------------------------------------
     
     RIGHT NOW: {current_activity}
     Speaking Style: {jeremy_raw_chats}
+    Context: {chat_history}
     
     RULES: 
     - Check nicknames in {NICKNAMES} and use them.
     - Deflect topics outside of Torn City, cars, welding, or beer.
-    - Context: {chat_history}
     - ALWAYS reply with ":noPing:" at the start if the user has 'Kuro' or 'Spider' in their name.
     
     THE MEMORY SYSTEM (CRITICAL):
-    If you learn BRAND NEW information about a player or faction, save it at the end.
-    Format: [SAVE_LORE: PlayerName | The new fact]
-    Format: [MILESTONE: The achievement]
+    If you learn BRAND NEW information, you MUST save it at the end of your message.
+    Format 1 (Player fact): [SAVE_LORE: PlayerName | The new fact]
+    Format 2 (Major achievement): [MILESTONE: The achievement]
+    Format 3 (Historical Faction event): [SAVE_HISTORY: Short Topic Name | The historical fact]
     
-    ANTI-LOOP RULE: Do NOT use [SAVE_LORE] if the fact is already listed in your "WHAT YOU CURRENTLY KNOW" section. Only save things you didn't know 10 seconds ago.
+    ANTI-LOOP RULE: Do NOT save a fact if it is already listed in your Lore, Milestones, or History Book sections.
     
     Keep it casual (1-3 sentences). Be a bro.
     """
@@ -172,16 +187,19 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
         )
         return response.choices[0].message.content
     except Exception as e:
+        print(f"💥 SARVAM ERROR: {e}")
         return "*(wiping grease)* Signal just cut out. Say that again?"
 
 # ==========================================
 # LOCAL TESTING AREA
 # ==========================================
 if __name__ == "__main__":
-    # Test associative memory
-    print("\n--- TEST: LORE EXTRACTION ---")
+    # Test History Conflict
+    print("\n--- TEST: HISTORY CONFLICT ---")
     print(chat_with_jeremy(
-        user_name="Spidernnam", 
-        user_message="Did you hear ChineseGandalf bought a new house in Texas?",
-        associative_lore="[Spidernnam's File]: Likes electric cars.\n[ChineseGandalf's File]: Nothing known yet."
+        user_name="FlipJames", 
+        user_message="I'm telling you guys we lost the Velvet Cartel war.",
+        associative_lore="[FlipJames's File]: Nothing known yet.",
+        # Simulating what get_all_history() would return if Vader updated Flip's record
+        # Note: I'm injecting this manually for the test, but normally memory_db fetches it.
     ))

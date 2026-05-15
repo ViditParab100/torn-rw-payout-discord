@@ -127,23 +127,27 @@ async def on_message(message):
                 # ==========================================
                 import re
                 
-                # Changed tag to SAVE_LORE to stop accidental triggers, and improved regex
+                # 1. Extract Player Lore
                 lore_matches = re.findall(r"\[SAVE_LORE:\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
                 for subject, fact in lore_matches:
-                    subject = subject.strip()
-                    # We save it to the SUBJECT's file, not the speaker's ID!
-                    # You will need to tweak memory_db to just search/update by username, not ID.
-                    memory_db.update_player_lore(subject, fact) 
-                    print(f"🧠 Jeremy logged a fact about {subject}: {fact}")
+                    memory_db.update_player_lore(subject.strip(), fact.strip()) 
 
+                # 2. Extract Milestones
                 milestone_matches = re.findall(r"\[MILESTONE:\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
                 for achievement in milestone_matches:
                     memory_db.add_faction_milestone(achievement.strip())
-                    print(f"🏆 Milestone added: {achievement}")
+                    
+                # 3. Extract Faction History (NEW)
+                history_matches = re.findall(r"\[SAVE_HISTORY:\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
+                for topic, fact in history_matches:
+                    # We pass the speaker's name so the database knows WHO claimed this history
+                    memory_db.update_faction_history(topic.strip(), fact.strip(), speaker_name)
+                    print(f"📜 History logged for '{topic.strip()}': {fact.strip()} (by {speaker_name})")
 
-                # WIPE THE TAGS (Case insensitive, handles weird spacing)
+                # WIPE ALL TAGS SO DISCORD DOESN'T SEE THEM
                 final_reply = re.sub(r"\[SAVE_LORE:.*?\]", "", ai_reply, flags=re.IGNORECASE)
-                final_reply = re.sub(r"\[MILESTONE:.*?\]", "", final_reply, flags=re.IGNORECASE).strip()
+                final_reply = re.sub(r"\[MILESTONE:.*?\]", "", final_reply, flags=re.IGNORECASE)
+                final_reply = re.sub(r"\[SAVE_HISTORY:.*?\]", "", final_reply, flags=re.IGNORECASE).strip()
 
                 if not final_reply: 
                     final_reply = "*(Jeremy nods and goes back to work)*"
