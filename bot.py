@@ -132,23 +132,15 @@ async def on_message(message):
                 for subject, fact in lore_matches:
                     memory_db.update_player_lore(subject.strip(), fact.strip()) 
 
-                # 2. Extract Milestones
-                milestone_matches = re.findall(r"\[MILESTONE:\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
-                for achievement in milestone_matches:
-                    memory_db.add_faction_milestone(achievement.strip())
-                    
-                # 3. Extract Faction History (Now with Date Support)
-                # This regex looks for 3 sections separated by the '|' symbol
-                history_matches = re.findall(r"\[SAVE_HISTORY:\s*([^|\]]+)\s*\|\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
-                
-                for topic, fact, date_str in history_matches:
-                    memory_db.update_faction_history(topic.strip(), fact.strip(), speaker_name, date_str)
-                    print(f"📜 History logged for '{topic.strip()}': {fact.strip()} | Date: {date_str.strip()} (by {speaker_name})")
+                # 2. Extract Milestones (Now with Date Support!)
+                milestone_matches = re.findall(r"\[MILESTONE:\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
+                for achievement, date_str in milestone_matches:
+                    memory_db.add_faction_milestone(achievement.strip(), date_str.strip())
+                    print(f"🏆 Milestone added: {achievement.strip()} | Date: {date_str.strip()}")
 
                 # WIPE ALL TAGS SO DISCORD DOESN'T SEE THEM
                 final_reply = re.sub(r"\[SAVE_LORE:.*?\]", "", ai_reply, flags=re.IGNORECASE)
-                final_reply = re.sub(r"\[MILESTONE:.*?\]", "", final_reply, flags=re.IGNORECASE)
-                final_reply = re.sub(r"\[SAVE_HISTORY:.*?\]", "", final_reply, flags=re.IGNORECASE)
+                final_reply = re.sub(r"\[MILESTONE:.*?\]", "", final_reply, flags=re.IGNORECASE).strip()
 
                 # ==========================================
                 # THE NOPING EMOJI TRIGGER

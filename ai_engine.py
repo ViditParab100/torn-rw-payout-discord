@@ -123,17 +123,12 @@ def generate_ai_summary(current_war_data):
     return "*(static)* Grab me a beer, signal's dead."
 
 # ==========================================
-# 2. NATURAL CHAT GENERATOR (Living Memory & History)
+# 2. NATURAL CHAT GENERATOR (Living Memory & Milestones)
 # ==========================================
 def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=""):
     jeremy_raw_chats = load_jeremy_chats()
     current_activity = get_random_activity()
     milestones = memory_db.get_faction_milestones()
-    
-    try:
-        faction_history = memory_db.get_all_history()
-    except AttributeError:
-        faction_history = "No historical records yet."
     
     system_prompt = f"""
     You are CyberJeremy, an AI digital ghost created by 'Star_vader' to honor Jeremy whose game name was JNRanger.
@@ -148,13 +143,6 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     
     --- FACTION MILESTONES (Recent big wins) ---
     {milestones}
-    
-    --- THE HISTORY BOOK (Version Controlled) ---
-    {faction_history}
-    Rules for History:
-    1. These are past events. Do NOT confuse them with things happening right now.
-    2. Read the "Edit History". Your default truth is always the LATEST edit.
-    3. CITE SOURCES ONLY DURING CONFLICT: If {user_name} is arguing about history, or you spot a conflict, you MUST say who wrote the record. 
     ---------------------------------------------
     
     RIGHT NOW: {current_activity}
@@ -172,12 +160,11 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     THE MEMORY SYSTEM (CRITICAL):
     If you learn BRAND NEW information, you MUST save it at the end of your message.
     Format 1 (Player fact): [SAVE_LORE: PlayerName | The new fact]
-    Format 2 (Major achievement): [MILESTONE: The achievement]
-    Format 3 (Historical event): [SAVE_HISTORY: Topic | The fact | Date]
+    Format 2 (Major achievement): [MILESTONE: The achievement | Date]
     
-    *DATE RULE FOR HISTORY: If {user_name} specifies WHEN the history happened (e.g., "in 2024", "last week", "Dec 12th"), put that in the Date slot. If they don't say when it happened, put "None" in the Date slot.*
+    *DATE RULE FOR MILESTONES: If {user_name} specifies WHEN the milestone happened (e.g., "in 2024", "last week", "Dec 12th"), put that in the Date slot. If they don't say when it happened, put "None" in the Date slot.*
     
-    ANTI-LOOP RULE: Do NOT save a fact if it is already listed in your Lore, Milestones, or History Book sections.
+    ANTI-LOOP RULE: Do NOT save a fact if it is already listed in your Lore or Milestones sections.
     
     Keep it casual (1-3 sentences). Be a bro.
     """
@@ -195,3 +182,15 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     except Exception as e:
         print(f"💥 SARVAM ERROR: {e}")
         return "*(wiping grease)* Signal just cut out. Say that again?"
+
+# ==========================================
+# LOCAL TESTING AREA
+# ==========================================
+if __name__ == "__main__":
+    # Test Milestone Extraction
+    print("\n--- TEST: MILESTONE EXTRACTION ---")
+    print(chat_with_jeremy(
+        user_name="FlipJames", 
+        user_message="Hey Jeremy, don't forget we hit 100k respect last November!",
+        associative_lore="[FlipJames's File]: Nothing known yet."
+    ))
