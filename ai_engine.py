@@ -173,7 +173,9 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     If you learn BRAND NEW information, you MUST save it at the end of your message.
     Format 1 (Player fact): [SAVE_LORE: PlayerName | The new fact]
     Format 2 (Major achievement): [MILESTONE: The achievement]
-    Format 3 (Historical Faction event): [SAVE_HISTORY: Short Topic Name | The historical fact]
+    Format 3 (Historical event): [SAVE_HISTORY: Topic | The fact | Date]
+    
+    *DATE RULE FOR HISTORY: If {user_name} specifies WHEN the history happened (e.g., "in 2024", "last week", "Dec 12th"), put that in the Date slot. If they don't say when it happened, put "None" in the Date slot.*
     
     ANTI-LOOP RULE: Do NOT save a fact if it is already listed in your Lore, Milestones, or History Book sections.
     

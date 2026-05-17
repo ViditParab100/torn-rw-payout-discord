@@ -137,11 +137,13 @@ async def on_message(message):
                 for achievement in milestone_matches:
                     memory_db.add_faction_milestone(achievement.strip())
                     
-                # 3. Extract Faction History
-                history_matches = re.findall(r"\[SAVE_HISTORY:\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
-                for topic, fact in history_matches:
-                    memory_db.update_faction_history(topic.strip(), fact.strip(), speaker_name)
-                    print(f"📜 History logged for '{topic.strip()}': {fact.strip()} (by {speaker_name})")
+                # 3. Extract Faction History (Now with Date Support)
+                # This regex looks for 3 sections separated by the '|' symbol
+                history_matches = re.findall(r"\[SAVE_HISTORY:\s*([^|\]]+)\s*\|\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
+                
+                for topic, fact, date_str in history_matches:
+                    memory_db.update_faction_history(topic.strip(), fact.strip(), speaker_name, date_str)
+                    print(f"📜 History logged for '{topic.strip()}': {fact.strip()} | Date: {date_str.strip()} (by {speaker_name})")
 
                 # WIPE ALL TAGS SO DISCORD DOESN'T SEE THEM
                 final_reply = re.sub(r"\[SAVE_LORE:.*?\]", "", ai_reply, flags=re.IGNORECASE)

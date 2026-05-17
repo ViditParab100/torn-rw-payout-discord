@@ -128,11 +128,17 @@ def get_faction_milestones():
 # FACTION HISTORY (Version Controlled)
 # ==========================================
 
-def update_faction_history(topic, text, author_name):
-    """Saves a historical record. If the topic exists, it adds a new version to the array."""
+def update_faction_history(topic, text, author_name, provided_date=None):
+    """Saves a historical record with custom date support."""
     from datetime import datetime
     
-    # We use a lowercase topic to group things together (e.g. "The First War" == "the first war")
+    # 1. Check if the AI handed us a real date. Ignore placeholders like "None".
+    if provided_date and provided_date.lower().strip() not in ["none", "n/a", "today", "now", ""]:
+        record_date = provided_date.strip()
+    else:
+        # Fallback to the exact current time
+        record_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+    
     history_col.update_one(
         {"topic_id": topic.lower().strip()},
         {
@@ -141,7 +147,7 @@ def update_faction_history(topic, text, author_name):
                 "versions": {
                     "text": text,
                     "author": author_name,
-                    "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+                    "date": record_date
                 }
             }
         },
