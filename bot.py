@@ -137,17 +137,32 @@ async def on_message(message):
                 for achievement in milestone_matches:
                     memory_db.add_faction_milestone(achievement.strip())
                     
-                # 3. Extract Faction History (NEW)
+                # 3. Extract Faction History
                 history_matches = re.findall(r"\[SAVE_HISTORY:\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
                 for topic, fact in history_matches:
-                    # We pass the speaker's name so the database knows WHO claimed this history
                     memory_db.update_faction_history(topic.strip(), fact.strip(), speaker_name)
                     print(f"📜 History logged for '{topic.strip()}': {fact.strip()} (by {speaker_name})")
 
                 # WIPE ALL TAGS SO DISCORD DOESN'T SEE THEM
                 final_reply = re.sub(r"\[SAVE_LORE:.*?\]", "", ai_reply, flags=re.IGNORECASE)
                 final_reply = re.sub(r"\[MILESTONE:.*?\]", "", final_reply, flags=re.IGNORECASE)
-                final_reply = re.sub(r"\[SAVE_HISTORY:.*?\]", "", final_reply, flags=re.IGNORECASE).strip()
+                final_reply = re.sub(r"\[SAVE_HISTORY:.*?\]", "", final_reply, flags=re.IGNORECASE)
+
+                # ==========================================
+                # THE NOPING EMOJI TRIGGER
+                # ==========================================
+                # 1. Check if Jeremy decided to be funny
+                use_noping = False
+                if "[USE_NOPING]" in final_reply.upper():
+                    use_noping = True
+                
+                # 2. Wipe the tag so Discord doesn't see the text
+                final_reply = re.sub(r"\[USE_NOPING\]", "", final_reply, flags=re.IGNORECASE).strip()
+
+                # 3. Add the actual emoji to the front if triggered
+                if use_noping:
+                    noping_emoji = "<:noPing:1469263150913290324>"
+                    final_reply = f"{noping_emoji} {final_reply}"
 
                 if not final_reply: 
                     final_reply = "*(Jeremy nods and goes back to work)*"

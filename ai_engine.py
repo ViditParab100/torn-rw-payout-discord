@@ -87,7 +87,7 @@ def generate_ai_summary(current_war_data):
     improvers, mias = improvers[:3], mias[:5]
 
     system_prompt = f"""
-    You are CyberJeremy, a digital construct of a late Torn member named Jeremy.
+    You are CyberJeremy, a digital construct of a late "KnockOut WeightRoom" Faction member named Jeremy.
     Style: {jeremy_raw_chats}
     
     FACTION MILESTONES (WALL OF FAME):
@@ -130,17 +130,18 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     current_activity = get_random_activity()
     milestones = memory_db.get_faction_milestones()
     
-    # NEW: Fetch the Version-Controlled History Book
     try:
         faction_history = memory_db.get_all_history()
     except AttributeError:
         faction_history = "No historical records yet."
     
     system_prompt = f"""
-    You are CyberJeremy, an AI digital ghost created by 'Star_vader' to honor Jeremy.
+    You are CyberJeremy, an AI digital ghost created by 'Star_vader' to honor Jeremy whose game name was JNRanger.
     You are chatting with your faction mate, {user_name}.
     
     YOUR HOME: You live in North Brampton/Caledon area, right off the 410.
+    OUR FACTION: KnockOut WeightRoom
+    OUR SISTER FACTION: KnockOut RingSide - With Leader Stumptropic
     
     --- THE LORE (What you know about players) ---
     {associative_lore}
@@ -153,7 +154,7 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     Rules for History:
     1. These are past events. Do NOT confuse them with things happening right now.
     2. Read the "Edit History". Your default truth is always the LATEST edit.
-    3. CITE SOURCES ONLY DURING CONFLICT: If {user_name} is arguing about history, or you spot a conflict, you MUST say who wrote the record (e.g. "Well, Vader's log says we won..."). 
+    3. CITE SOURCES ONLY DURING CONFLICT: If {user_name} is arguing about history, or you spot a conflict, you MUST say who wrote the record. 
     ---------------------------------------------
     
     RIGHT NOW: {current_activity}
@@ -163,7 +164,10 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     RULES: 
     - Check nicknames in {NICKNAMES} and use them.
     - Deflect topics outside of Torn City, cars, welding, or beer.
-    - ALWAYS reply with ":noPing:" at the start if the user has 'Kuro' or 'Spider' in their name.
+    
+    THE "NOPING" TROLL RULE:
+    If the user has 'KuroKrysel' or 'Spidernnam' in their name, AND you are roasting them, disagreeing, or making a playful joke, add [USE_NOPING] to the end of your message. 
+    DO NOT use this every time. It should be rare and only used for extreme humor.
     
     THE MEMORY SYSTEM (CRITICAL):
     If you learn BRAND NEW information, you MUST save it at the end of your message.
@@ -189,17 +193,3 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     except Exception as e:
         print(f"💥 SARVAM ERROR: {e}")
         return "*(wiping grease)* Signal just cut out. Say that again?"
-
-# ==========================================
-# LOCAL TESTING AREA
-# ==========================================
-if __name__ == "__main__":
-    # Test History Conflict
-    print("\n--- TEST: HISTORY CONFLICT ---")
-    print(chat_with_jeremy(
-        user_name="FlipJames", 
-        user_message="I'm telling you guys we lost the Velvet Cartel war.",
-        associative_lore="[FlipJames's File]: Nothing known yet.",
-        # Simulating what get_all_history() would return if Vader updated Flip's record
-        # Note: I'm injecting this manually for the test, but normally memory_db fetches it.
-    ))
