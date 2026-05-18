@@ -44,9 +44,10 @@ async def on_message(message):
         return
 
     if bot.user.mentioned_in(message):
-        clean_message = message.content.replace(f'<@{bot.user.id}>', '').strip().lower()
+        # Use clean_content to get rid of mentions cleanly
+        clean_message = message.clean_content.replace(f'@{bot.user.display_name}', '').strip().lower()
         if not clean_message:
-            clean_message = "Hey buddy."
+            clean_message = "hey buddy."
 
         scout_keywords = ["scout", "war report", "stats", "war summary", "how are we doing", "status"]
         
@@ -59,7 +60,7 @@ async def on_message(message):
                     return
 
                 try:
-                    # 1. Fetch War Data
+                    # 1. Fetch War Data (All zeros for summary)
                     war_data = main_logic.process_war_request(api_key, 0, 0, 0, 0, 0, force_update=False)
                     
                     # 2. Generate AI Summary
@@ -83,7 +84,7 @@ async def on_message(message):
 
                 except Exception as e:
                     print(f"CRITICAL ERROR IN SCOUT: {e}")
-                    await message.channel.send(f"❌ **CyberJeremy Error:** Something's wrong in the shop. Check my logs.")
+                    await message.channel.send(f"❌ **CyberJeremy Error:** Something's wrong in the shop. {e}")
 
         # --- ROUTE B: NORMAL CHAT WITH STEALTH MEMORY ---
         else:
@@ -125,7 +126,6 @@ async def on_message(message):
                 # ==========================================
                 # BULLETPROOF EXTRACTION LOGIC
                 # ==========================================
-                import re
                 
                 # 1. Extract Player Lore
                 lore_matches = re.findall(r"\[SAVE_LORE:\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
@@ -165,7 +165,7 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# ... (Keep /set_key and /payout exactly as you have them) ...
+# ... (Keep /set_key exactly as you have it) ...
 
 # ==========================================
 # THE VAULT COMMAND
@@ -191,7 +191,7 @@ async def set_key(interaction: discord.Interaction, api_key: str):
 @app_commands.describe(
     total_payout="Total money received",
     medical_cost="Medical costs to deduct",
-    api_key="Your Torn API Key",
+    api_key="Your Torn API Key (Optional if vault is set)",
     pay_per_assist="Payment per assist (Default 0$)",
     outside_hit_val="Cash per outside hit (Default 0$)",
     outside_hit_limit="Max rewarded outside hits per person"
@@ -199,17 +199,23 @@ async def set_key(interaction: discord.Interaction, api_key: str):
 async def payout(interaction: discord.Interaction, 
                  total_payout: int, 
                  medical_cost: int, 
-                 api_key: str, 
+                 api_key: str = None, 
                  pay_per_assist: int = 0,
                  outside_hit_val: int = 0, 
                  outside_hit_limit: int = 0):
     
     # CRITICAL: Use defer because API calls + File generation can take > 3 seconds
-    # This prevents the "Interaction Failed" error
     await interaction.response.defer(ephemeral=True)
 
     try:
-        # 1. Generate the files using your main_logic
+        # 0. Check Vault if api_key not provided
+        if not api_key:
+            api_key = memory_db.get_user_key(interaction.user.id)
+            if not api_key:
+                await interaction.followup.send("❌ No API key provided and none found in vault. Use `/set_key` first.")
+                return
+
+        # 1. Generate the files using your main_logic (Now cache-aware!)
         saved_files = main_logic.process_war_and_get_files(
             api_key, total_payout, medical_cost, pay_per_assist, outside_hit_val, outside_hit_limit
         )
