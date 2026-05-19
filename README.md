@@ -2,30 +2,31 @@
 
 ![Status](https://img.shields.io/badge/status-active-success?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/platform-discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)
-![API](https://img.shields.io/badge/torn-public_api-0ea5e9?style=for-the-badge)
+![API](https://img.shields.io/badge/torn-v2_api-0ea5e9?style=for-the-badge)
 ![AI](https://img.shields.io/badge/AI-Sarvam_105B-FF9900?style=for-the-badge)
 ![DB](https://img.shields.io/badge/Database-MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
 
 > [!TIP]
-> **Fast and simple payout reporting** combined with a **Living Faction AI**.
+> **Precision Payout Reporting** combined with a **Living Faction AI**.
 >  
-> This project calculates financial payouts for faction members based on their Ranked War (RW) performance, while also hosting "CyberJeremy"—an AI digital ghost of a faction mechanic who remembers conversations, tracks faction lore, and roasts inactive players.
+> This project calculates financial payouts for faction members based on their Ranked War (RW) performance with surgical accuracy, while also hosting "CyberJeremy"—an AI digital ghost of a faction mechanic who remembers conversations, tracks faction lore, and roasts inactive players.
 
 ---
 
 ## ✨ Key Features
 
-### 💰 Automated RW Payouts
-* **Instant Calculation:** Calculates exact faction payouts, medical deductions, assist pay, and outside hit bonuses.
-* **Excel & PDF Reports:** Automatically generates and posts detailed financial spreadsheets and clean PDF charts directly into Discord.
-* **Key Vault:** Users securely save their Torn API keys via `/set_key` so they never have to type them in chat again.
+### 💰 Automated RW Payouts (The Accountant)
+*   **Precision Calculation:** Automatically calculates faction payouts, medical deductions, assist pay, and outside hit bonuses.
+*   **Overflow Chain Logic:** Sophisticated filtering for chains that continue after a war ends. It matches post-war attacks to specific bonuses to ensure only valid war-time respect is rewarded.
+*   **Excel & PDF Reports:** Generates professional-grade financial spreadsheets and visual charts (Matplotlib) posted directly to Discord.
+*   **Smart Caching:** Stores war data in MongoDB for instant report recalculations without re-fetching from the Torn API.
 
 ### 🤖 CyberJeremy (Living AI Engine)
-CyberJeremy isn't just a chatbot; he's a faction mate with an associative memory, powered by the Sarvam 105B model.
-* **Dynamic War Summaries:** Tag `@CyberJeremy scout` to get an in-character summary of the latest war. He praises the MVP, shouts out "Improvers" who beat their average, and mocks "MIA" players who fell asleep.
-* **Associative Stealth Memory:** Jeremy listens to faction chat. If someone mentions a new job, a favorite beer, or a new car, Jeremy extracts that lore in the background and saves it to MongoDB. The next time he talks to that player, he brings it up natively.
-* **Faction Milestones:** Tracks and remembers major faction achievements automatically.
-* **Custom Lore:** Programmed with mechanic lore (welding SXS subframes, Lexus GX470s) and operates out of a virtual garage in Brampton. 
+CyberJeremy is powered by the **Sarvam 105B** model, acting as a "digital ghost" with a persistent memory.
+*   **Dynamic War Summaries:** Tag `@CyberJeremy scout` for an in-character summary of the latest war. He identifies MVPs, "Improvers" (beating their historical average), and "MIA" players.
+*   **Associative Stealth Memory:** Jeremy extracts lore from chat (e.g., jobs, hobbies, cars) and saves it to MongoDB. He natively recalls these facts in future conversations.
+*   **Visual Analytics:** Generates bar charts and pie charts of faction performance to accompany war summaries.
+*   **Custom Persona:** Programmed with faction-specific lore (welding, GX470s, Brampton garage life).
 
 ---
 
@@ -34,34 +35,59 @@ CyberJeremy isn't just a chatbot; he's a faction mate with an associative memory
 | Command / Trigger | Description |
 | :--- | :--- |
 | `/set_key [api_key]` | Securely locks your public Torn API key into the MongoDB vault (Ephemeral). |
-| `/payout [...]` | Generates the Excel and PDF war payout reports based on pool size and deductions. |
-| `@CyberJeremy scout` | Jeremy pulls the latest war data, generates charts, and writes an AI-driven summary. |
-| `@CyberJeremy [chat]`| Talk naturally with Jeremy. He uses associative memory to recall facts about anyone mentioned in the sentence. |
-
-> [!NOTE]
-> To generate older reports, pass the **specific War ID** into the payout command.
+| `/payout [...]` | Calculates payouts. Uses vault key if `api_key` is omitted. Supports custom bonus limits. |
+| `@CyberJeremy scout` | Jeremy fetches latest war data, generates charts, and writes an AI-driven summary. |
+| `@CyberJeremy [chat]`| Natural chat with Jeremy. He uses associative memory to recall facts about mentioned players. |
 
 ---
 
-## 🧠 The "Living Memory" Architecture
-CyberJeremy operates on a multi-layered memory system to prevent AI hallucination and echo-looping:
-1. **Short-Term Memory:** Reads the last 7 messages in the Discord channel to maintain conversation context.
-2. **Pre-Filtering:** Python scripts pre-process 100+ member faction lists down to Top 5s and MIAs *before* sending data to the AI, saving tokens and speeding up response times.
-3. **Regex Extraction:** The bot scrubs Jeremy's internal thoughts (e.g., `[SAVE_LORE: Spider | Bought a Mustang]`) before the message hits Discord, saving the fact silently to the DB.
+## 🧠 Technical Architecture
+
+### 1. The Payout Engine (`main_logic.py`)
+Uses a **Research -> Filter -> Recalculate** workflow:
+*   Fetches the **Ranked War Report** and all **Chain Reports** during the war period.
+*   Cross-references individual **Faction Attacks** to identify and subtract "Overflow" hits performed after the war conclusion.
+*   Matches bonuses (milestones) to specific post-war attacks to ensure financial integrity.
+
+### 2. The Living Memory (`memory_db.py`)
+*   **Key Vault:** Encrypted-style storage for user API keys.
+*   **Lore Storage:** Associative player facts stored as "lore bits" keyed by username.
+*   **War History:** Historical stats for calculating "Improver" and "MIA" status.
+
+### 3. Visualizations (`chart_generator.py`)
+*   Uses **Matplotlib** with a dark theme tailored for Discord.
+*   Generates Top 10 Hitter bar charts and Faction Respect Share pie charts.
 
 ---
 
-## 🛠️ Requirements & Setup
+## 🛠️ Setup & Deployment
 
-To host this bot yourself, you will need:
-1. A **Discord Bot Token** (with Message Content Intents enabled).
-2. A **MongoDB Atlas URI** (For the Vault and Lore storage).
-3. A **Sarvam AI API Key** (For the 105B parameter brain).
-4. A **Public Torn API Key** (For fetching war data).
+### Requirements
+1.  **Discord Bot Token** (Message Content Intent enabled).
+2.  **MongoDB Atlas URI** (Cluster 0 or similar).
+3.  **Sarvam AI API Key** (For the 105B brain).
+4.  **Python 3.10+**
 
 ### Environment Variables
-Ensure the following variables are set in your host environment (e.g., Render, Heroku) or your local PowerShell session:
 ```env
 DISCORD_TOKEN=your_discord_bot_token
-MONGO_URI=mongodb+srv://<username>:<password>@cluster...
+MONGO_URI=mongodb+srv://...
 SARVAM_API_KEY=your_sarvam_api_key
+```
+
+### Installation
+```bash
+pip install -r requirements.txt
+python bot.py
+```
+
+---
+
+## 🏗️ Project Structure
+*   `bot.py`: Discord entry point and slash command handler.
+*   `ai_engine.py`: Sarvam AI integration and prompt engineering.
+*   `main_logic.py`: The core financial and chain-processing engine.
+*   `torn_api.py`: Robust Torn v2 API wrapper.
+*   `memory_db.py`: MongoDB interface for lore, keys, and history.
+*   `excel_generator.py` / `pdf_convertor.py`: Reporting modules.
+*   `chart_generator.py`: Visual analytics module.
