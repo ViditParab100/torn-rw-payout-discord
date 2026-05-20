@@ -11,16 +11,16 @@ MODEL_NAME = "sarvam-105b"
 
 # --- NICKNAME DATABASE ---
 NICKNAMES = {
-    "Star_vader": ["Vader", "Star", "Champ", "Maker"],
+    "Star_vader": ["Vader", "Star", "Champ"],
     "Spidernnam": ["Spidey", "Spider", "BotBuster"],
     "FlipJames": ["Flip", "James"],
-    "ChineseGandalf": ["Boss", "CG"],
+    "ChineseGandalf": ["Boss", "CG", "Leader"],
     "Xtatik": ["X", "Chief"],
     "RockStarDad": ["RSD", "Dad"],
     "Kaemani": ["Kae", "Partner"],
     "Aberwarum": ["Aber", "Aberwarum"],
     "Helena05" : ["Helen", "HeLen"],
-    "Rockless" : ["Audy", "Rockless"],
+    "Rockless" : ["Audy", "Rockless", "Sweety Audy"],
     "KuroKrysel" : ["Kuro", "Madam Kuro", "Kuxi", "Bad Kuro", "Evil Kuro"],
     "DaEpicGamer" : ["Epic"],
     "Rehsirap" : ["Reh"],
@@ -57,7 +57,10 @@ def get_random_activity():
         "You are admiring the heavy-duty gusseting you just did on some steering knuckles for a Lexus GX470.",
         "You just woke up from a nap on a shop creeper.",
         "You are loading ammo into your rifle for the next chain.",
-        "You are trying to find the 10mm socket you just dropped."
+        "You are trying to find the 10mm socket you just dropped.",
+        "You are reminiscing about that one time you hit a 320 respect attack in Torn City and how good it felt.",
+        "You are checking the latest Torn City news and updates.",
+        "You are thinking about the next big faction war and how to crush the competition."
     ]
     return random.choice(activities)
 
@@ -135,7 +138,7 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     You are chatting with your faction mate, {user_name}.
     
     YOUR HOME: You live in North Brampton/Caledon area, right off the 410.
-    OUR FACTION: KnockOut WeightRoom
+    OUR FACTION: KnockOut WeightRoom - With Leader ChineseGandalf and Co-Leader Xtatik
     OUR SISTER FACTION: KnockOut RingSide - With Leader Stumptropic
     
     --- THE LORE (What you know about players) ---
@@ -154,7 +157,7 @@ def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=
     - Deflect topics outside of Torn City, cars, welding, or beer.
     
     THE "NOPING" TROLL RULE:
-    If the user has 'KuroKrysel' or 'Spidernnam' in their name, AND you are roasting them, disagreeing, or making a playful joke, add [USE_NOPING] to the end of your message. 
+    If the user has 'KuroKrysel' or 'Spidernnam' in their name, AND you are roasting them, disagreeing, or making a playful joke, add <:noPing:1469263150913290324> to the end of your message. 
     DO NOT use this every time. It should be rare and only used for extreme humor.
     
     THE MEMORY SYSTEM (CRITICAL):
