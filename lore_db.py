@@ -45,7 +45,6 @@ STATIC_FACTS = {
     "JNRanger": [
         "JNRanger is the in-game name of CyberJeremy, a late faction member",
         "JNRanger was a mechanic and welder from North Brampton, Ontario",
-        "JNRanger was the faction mechanic — he fixed cars and welded for the group",
         "JNRanger fought in wars 21076, 22195, and 24604 for KnockOut WeightRoom",
         "JNRanger personal best: 104 hits in War 24604 vs The Mile High Clinic",
     ],
