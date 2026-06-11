@@ -13,6 +13,7 @@ import chart_generator
 import memory_db
 import milestone_detector
 import ffscouter
+import lore_db
 
 # 1. Flask Keep-Alive Setup
 app = Flask('')
@@ -36,6 +37,10 @@ class RWBot(commands.Bot):
     async def setup_hook(self):
         await self.tree.sync()
         print(f"✅ Slash commands synced for {self.user}")
+        # Rebuild semantic lore index from MongoDB on startup
+        import asyncio
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, lore_db.rebuild_from_mongodb)
 
 bot = RWBot()
 

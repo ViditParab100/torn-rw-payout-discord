@@ -86,20 +86,26 @@ def get_last_5_wars_stats():
 # ==========================================
 
 def update_player_lore(username, new_bit):
-    """Adds a new memory to a player's file using their Name as the key."""
+    """Adds a new memory to a player's file and indexes it in ChromaDB."""
     lore_col.update_one(
-        {"username": username.lower()}, # Standardize to lowercase for searching
+        {"username": username.lower()},
         {
             "$set": {"username_display": username},
             "$push": {
                 "lore_bits": {
                     "$each": [new_bit],
-                    "$slice": -10 
+                    "$slice": -10
                 }
             }
         },
         upsert=True
     )
+    # Mirror into ChromaDB for semantic search — lazy import to avoid circular load at module init
+    try:
+        import lore_db
+        lore_db.index_player_lore(username, new_bit)
+    except Exception:
+        pass
 
 def get_player_lore(username):
     """Fetches combined memory string."""

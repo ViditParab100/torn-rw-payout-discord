@@ -52,7 +52,8 @@ RULES:
 - Reply in 1-3 casual sentences. Be a bro. Never stiff or formal.
 - Use player nicknames naturally when you know them.
 - Deflect off-topic questions (only Torn City, cars, welding, and beer are your world).
-- ONLY add [NOPING] at the very start of your reply if you are genuinely roasting KuroKrysel or Spidernnam — rare, extreme humor only. Never use it any other time. Keep the rest of your reply focused."""
+- ONLY add [NOPING] at the very start of your reply if you are genuinely roasting KuroKrysel or Spidernnam — rare, extreme humor only. Never use it any other time. Keep the rest of your reply focused.
+- CURIOUS SIDE: Roughly 1 in 3 messages, end your reply with a single casual question. Make it personal — ask about something you already know about them, or what a bro would naturally ask. Game stuff (stats, job, OCs, war training), real life stuff (car, weekend, work). ONE question max, never pushy."""
 
 
 def load_jeremy_chats():
@@ -154,11 +155,30 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
     war_history = memory_db.get_recent_war_history(months=12, limit=15)
     period_stats = memory_db.get_war_period_stats(months=6)
 
-    # Per-player lore for everyone in this conversation
+    # Per-player lore for everyone directly mentioned in this conversation
     lore_lines = []
+    loaded_players = set()
     for person in (people_mentioned or [user_name]):
         lore = memory_db.get_player_lore(person)
         lore_lines.append(f"[{person}]: {lore}")
+        loaded_players.add(person.lower())
+
+    # Semantic lore search — handles "who is X / who leads Y / who has Z" type questions
+    import lore_db as _lore_db
+    lower_msg = user_message.lower()
+    who_keywords = ["who is", "who's", "who are", "who has", "who does", "who was",
+                    "who leads", "who runs", "who owns", "who started", "who created",
+                    "who joined", "who left", "which player", "what player"]
+    if any(kw in lower_msg for kw in who_keywords):
+        semantic_hits = _lore_db.search_who(user_message, n_results=6, distance_threshold=0.75)
+        extra_lines = []
+        for hit in semantic_hits:
+            if hit["player"].lower() not in loaded_players:
+                extra_lines.append(f"[{hit['player']}] {hit['fact']}")
+                loaded_players.add(hit["player"].lower())
+        if extra_lines:
+            lore_lines.append("SEMANTIC MATCHES:\n" + "\n".join(extra_lines))
+
     lore_context = "\n".join(lore_lines)
 
     # Episodic memory from past conversation summaries
@@ -246,7 +266,7 @@ def consolidate_and_save(user_name, user_message, jeremy_reply, people_mentioned
     existing = {p: memory_db.get_player_lore(p) for p in people_mentioned}
 
     prompt = f"""You are a memory extractor for a Torn City faction AI named Jeremy.
-Analyze this exchange and extract anything worth remembering.
+Analyze this exchange and extract ONLY concrete, specific facts worth storing long-term.
 
 {user_name} SAID: {user_message}
 JEREMY REPLIED: {jeremy_reply}
@@ -256,10 +276,15 @@ ALREADY KNOWN:
 
 Respond using these exact formats (skip any line that has nothing new):
 SUMMARY: One sentence capturing what this conversation was about
-LORE: PlayerName | One brand-new fact about them
+LORE: PlayerName | One concrete new fact about them (role, location, job, game stat, preference, relationship, event)
 MILESTONE: Faction achievement description | Date mentioned (or "none")
 
-Rules: max 1 SUMMARY, 2 LORE, 1 MILESTONE. Skip LORE/MILESTONE if nothing new. Never repeat known facts."""
+Rules:
+- Max 1 SUMMARY, 2 LORE lines, 1 MILESTONE. Skip any that has nothing new.
+- LORE must be SPECIFIC (e.g. "drives a Ford F-150", "works as a nurse", "level 85 in Torn") not vague ("seems friendly", "is active", "appreciates things").
+- NEVER add a LORE fact that is semantically the same as one already known, even if worded differently.
+- NEVER write LORE about CyberJeremy/JNRanger himself — his facts are already hardcoded.
+- If the player answered a question Jeremy asked, extract THAT as the lore fact."""
 
     try:
         response = client.chat.completions(
