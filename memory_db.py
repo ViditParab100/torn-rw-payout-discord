@@ -1,7 +1,7 @@
 import os
 import certifi
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 1. Setup Connection
 # Using certifi.where() ensures a secure handshake with MongoDB Atlas
@@ -15,6 +15,7 @@ keys_collection = db["user_keys"]
 lore_col = db["lore"]
 milestone_col = db["milestones"]
 conversations_col = db["conversations"]
+faction_stats_col = db["faction_stats"]
 
 # ==========================================
 # API KEY VAULT (Secure Storage)
@@ -162,10 +163,15 @@ def get_faction_highlights():
     highlights = []
     record_types = [
         "faction_chain_record",
+        "chain_first_100",
+        "chain_first_1000",
+        "chain_first_2500",
         "faction_top_single_war_hits",
         "member_hit_record",
         "faction_respect_total",
         "win_streak",
+        "faction_wars_won",
+        "biggest_win_margin",
     ]
     for rtype in record_types:
         doc = milestone_col.find_one({"type": rtype}, sort=[("value", -1)])
@@ -197,3 +203,114 @@ def get_recent_summaries(limit=3):
     """Returns recent conversation summaries so Jeremy can recall past exchanges."""
     docs = list(conversations_col.find().sort("timestamp", -1).limit(limit))
     return [d["summary"] for d in docs]
+
+# ==========================================
+# WAR HISTORY CONTEXT (for Jeremy's answers)
+# ==========================================
+
+def get_recent_war_history(months=12, limit=15):
+    """
+    Returns a formatted war history string for Jeremy's context window.
+    Includes win/loss, opponent, date, score margin, and top hitter per war.
+    """
+    cutoff_ts = int((datetime.now() - timedelta(days=months * 30)).timestamp())
+    wars = list(wars_collection.find(
+        {"start_ts": {"$gte": cutoff_ts}}
+    ).sort("start_ts", -1).limit(limit))
+
+    if not wars:
+        return "No war history available for the requested period."
+
+    lines = []
+    for w in wars:
+        result = w.get("result", "?").upper()
+        opp = w.get("opponent_name", "?")
+        date = w.get("date", "?")
+        our = w.get("our_score", 0)
+        their = w.get("their_score", 0)
+        margin = w.get("margin", 0)
+        sign = "+" if margin >= 0 else ""
+
+        members = w.get("members", [])
+        if members:
+            top = max(members, key=lambda m: m.get("war_hits", 0))
+            top_str = f"MVP: {top['name']} {top['war_hits']} hits"
+        else:
+            top_str = ""
+
+        lines.append(
+            f"{date} | {result:<4} | vs {opp:<30} | Score {our:.0f}–{their:.0f} ({sign}{margin:.0f}) | {top_str}"
+        )
+
+    return "\n".join(lines)
+
+
+# ==========================================
+# FFSCOUTER INTEL CACHE
+# ==========================================
+
+def save_faction_intel(faction_id, faction_name, intel_data):
+    """Caches FFScouter intel for a faction. Upserts by faction_id."""
+    faction_stats_col.replace_one(
+        {"faction_id": faction_id},
+        {
+            "faction_id": faction_id,
+            "faction_name": faction_name,
+            "intel": intel_data,
+            "fetched_at": datetime.now()
+        },
+        upsert=True
+    )
+
+def get_faction_intel(faction_id):
+    """Returns cached FFScouter data for a faction, or None."""
+    return faction_stats_col.find_one({"faction_id": faction_id})
+
+
+def get_war_period_stats(months=6):
+    """
+    Returns aggregate stats for the last N months: record, top performer, win/loss streak.
+    Used when Jeremy is asked about overall recent performance.
+    """
+    cutoff_ts = int((datetime.now() - timedelta(days=months * 30)).timestamp())
+    wars = list(wars_collection.find(
+        {"start_ts": {"$gte": cutoff_ts}}
+    ).sort("start_ts", 1))
+
+    if not wars:
+        return {}
+
+    wins = sum(1 for w in wars if w.get("result") == "win")
+    losses = len(wars) - wins
+
+    # Top performer across the period
+    player_hits = {}
+    for w in wars:
+        for m in w.get("members", []):
+            name = m["name"]
+            player_hits[name] = player_hits.get(name, 0) + m.get("war_hits", 0)
+    top_player = max(player_hits.items(), key=lambda x: x[1], default=("?", 0))
+
+    # Current streak from most recent wars
+    streak, streak_type = 0, None
+    for w in reversed(wars):
+        r = w.get("result")
+        if streak_type is None:
+            streak_type = r
+        if r == streak_type:
+            streak += 1
+        else:
+            break
+
+    return {
+        "period_months": months,
+        "total_wars": len(wars),
+        "wins": wins,
+        "losses": losses,
+        "top_player": top_player[0],
+        "top_player_hits": top_player[1],
+        "current_streak": streak,
+        "current_streak_type": streak_type,
+        "first_war_date": wars[0].get("date", ""),
+        "last_war_date": wars[-1].get("date", "")
+    }

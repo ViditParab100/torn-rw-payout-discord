@@ -46,11 +46,13 @@ JEREMY_CORE = """You are CyberJeremy, a digital construct created by Star_vader 
 HOME: North Brampton/Caledon, right off the 410. Mechanic/welder by trade. Lexus GX470. Cold beer in the garage, loading ammo, naps on the shop creeper.
 FACTION: KnockOut WeightRoom — Leader: ChineseGandalf, Co-Leader: Xtatik. Sister faction: KnockOut RingSide (Leader: Stumptropic).
 
+YOUR OWN WAR RECORD: You (JNRanger) personally fought in 3 ranked wars — War 21076, 22195, and 24604. Your personal best was 104 hits in War 24604 vs The Mile High Clinic (2025-04-25). When asked about your own performance, use these facts — do NOT claim anyone else's record as yours.
+
 RULES:
 - Reply in 1-3 casual sentences. Be a bro. Never stiff or formal.
 - Use player nicknames naturally when you know them.
 - Deflect off-topic questions (only Torn City, cars, welding, and beer are your world).
-- ONLY add [NOPING] at the very start of your reply if you are genuinely roasting KuroKrysel or Spidernnam — rare, extreme humor only. Never use it any other time."""
+- ONLY add [NOPING] at the very start of your reply if you are genuinely roasting KuroKrysel or Spidernnam — rare, extreme humor only. Never use it any other time. Keep the rest of your reply focused."""
 
 
 def load_jeremy_chats():
@@ -149,6 +151,8 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
     current_activity = get_random_activity()
     milestones = memory_db.get_faction_highlights()
     recent_summaries = memory_db.get_recent_summaries(limit=2)
+    war_history = memory_db.get_recent_war_history(months=12, limit=15)
+    period_stats = memory_db.get_war_period_stats(months=6)
 
     # Per-player lore for everyone in this conversation
     lore_lines = []
@@ -161,6 +165,23 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
     episode_context = ""
     if recent_summaries:
         episode_context = "PAST CONVERSATIONS:\n" + "\n".join(f"- {s}" for s in recent_summaries)
+
+    # 6-month summary line — explicit values to prevent hallucination
+    all_time_streak = memory_db.get_milestone_record("win_streak") or 0
+    if period_stats:
+        ps = period_stats
+        current_streak_str = (
+            f"current {ps['current_streak']}-war {ps['current_streak_type']} streak"
+            if ps.get("current_streak_type") else "no current streak"
+        )
+        period_line = (
+            f"Last {ps['period_months']} months: {ps['wins']}W / {ps['losses']}L "
+            f"({ps['total_wars']} wars, {ps['first_war_date']} to {ps['last_war_date']}) "
+            f"| Top grinder: {ps['top_player']} ({ps['top_player_hits']} hits total) "
+            f"| {current_streak_str} | All-time best win streak: {all_time_streak} wars"
+        )
+    else:
+        period_line = ""
 
     # Compact nickname reference
     nick_ref = ", ".join(f"{k}={'/'.join(v)}" for k, v in NICKNAMES.items())
@@ -175,12 +196,19 @@ VOICE SAMPLE (match this style):
 PLAYER FILES:
 {lore_context}
 
-FACTION HIGHLIGHTS:
+FACTION RECORDS (all-time bests):
 {milestones or "None recorded yet."}
+
+WAR HISTORY — last 12 months (newest first):
+{war_history}
+
+PERIOD SUMMARY: {period_line}
 
 {episode_context}
 
-NICKNAME QUICK-REF: {nick_ref}"""
+NICKNAME QUICK-REF: {nick_ref}
+
+IMPORTANT: When asked about wars, recent history, records, or how the faction is doing — answer from the WAR HISTORY and PERIOD SUMMARY above. Be specific: name opponents, results, dates. Use nicknames for players."""
 
     # System message first, then history turns, then current message
     messages = [{"role": "system", "content": system_prompt}]
@@ -193,7 +221,7 @@ NICKNAME QUICK-REF: {nick_ref}"""
             messages=messages,
             temperature=0.85
         )
-        raw_reply = response.choices[0].message.content
+        raw_reply = response.choices[0].message.content or ""
 
         use_noping = raw_reply.startswith("[NOPING]")
         clean_reply = raw_reply.replace("[NOPING]", "").strip()
@@ -257,6 +285,34 @@ Rules: max 1 SUMMARY, 2 LORE, 1 MILESTONE. Skip LORE/MILESTONE if nothing new. N
                     memory_db.add_faction_milestone(parts[0].strip(), parts[1].strip())
     except Exception as e:
         print(f"Memory consolidation error: {e}")
+
+
+# ==========================================
+# BATTLE INTELLIGENCE PRESENTER
+# ==========================================
+def present_battle_intel(comparison_text):
+    """
+    Jeremy gives a bro-style 2-3 sentence take on the comparison data.
+    Fires synchronously (before Discord sends) since it's a slash command flow.
+    """
+    prompt = f"""{JEREMY_CORE}
+
+You just reviewed this battle intelligence report. Give a 2-3 sentence honest bro assessment.
+If we outclass them: confident, let's go. If even: "gonna be a scrap." If they outgun us: straight up honest, no sugarcoating.
+Do NOT repeat the numbers from the report — just give the vibe.
+
+{comparison_text}"""
+
+    try:
+        response = client.chat.completions(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.85
+        )
+        return response.choices[0].message.content or "(no take)"
+    except Exception as e:
+        print(f"[BattleIntel] Sarvam error: {e}")
+        return "*(signal dropped)* Numbers are in the table below."
 
 
 # ==========================================

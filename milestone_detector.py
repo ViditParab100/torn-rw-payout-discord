@@ -215,3 +215,186 @@ def _format_respect(value):
         n = value // 1_000_000
         return f"{n}M"
     return f"{value // 1_000}K"
+
+
+# ==========================================
+# CHAIN HISTORY MILESTONES
+# ==========================================
+
+CHAIN_THRESHOLDS = [100, 250, 500, 1000, 2000, 2500]
+
+
+def _fetch_all_chains(api_key):
+    """
+    Paginates through the full chain history by combining:
+    - sort=asc (oldest 100) + paginating sort=desc backwards until overlap.
+    Returns a time-sorted list of all unique chain dicts.
+    """
+    import time as _time
+
+    all_chains = {}  # keyed by chain id for dedup
+
+    # Oldest 100
+    try:
+        r = requests.get(
+            f"{TORN_API}/faction/chains?key={api_key}&limit=100&sort=asc",
+            timeout=10
+        ).json()
+        for c in r.get("chains", []):
+            all_chains[c["id"]] = c
+    except Exception as e:
+        print(f"[ChainMilestone] ASC fetch error: {e}")
+        return []
+
+    oldest_known_ts = min((c["start"] for c in all_chains.values()), default=0)
+
+    # Newest 100 + paginate backwards
+    try:
+        r2 = requests.get(
+            f"{TORN_API}/faction/chains?key={api_key}&limit=100&sort=desc",
+            timeout=10
+        ).json()
+        for c in r2.get("chains", []):
+            all_chains[c["id"]] = c
+        prev_link = r2.get("_metadata", {}).get("links", {}).get("prev")
+    except Exception as e:
+        print(f"[ChainMilestone] DESC fetch error: {e}")
+        prev_link = None
+
+    while prev_link:
+        _time.sleep(1)
+        try:
+            r3 = requests.get(f"{prev_link}&key={api_key}", timeout=10).json()
+            batch = r3.get("chains", [])
+            if not batch:
+                break
+            for c in batch:
+                all_chains[c["id"]] = c
+            prev_link = r3.get("_metadata", {}).get("links", {}).get("prev")
+            oldest_in_batch = min(c["start"] for c in batch)
+            if oldest_in_batch <= oldest_known_ts:
+                break  # overlapped with the asc batch
+        except Exception as e:
+            print(f"[ChainMilestone] Pagination error: {e}")
+            break
+
+    return sorted(all_chains.values(), key=lambda c: c["start"])
+
+
+def detect_chain_milestones(api_key):
+    """
+    Fetches the full chain history (all pages) and stores a milestone for the
+    first time each CHAIN_THRESHOLD was hit. Uses chain_first_{N} type —
+    idempotent on repeated calls.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Skip entirely if all thresholds already recorded
+    if all(memory_db.get_milestone_record(f"chain_first_{t}") is not None
+           for t in CHAIN_THRESHOLDS):
+        print("[ChainMilestone] All thresholds already stored — skipping.")
+        return
+
+    chains = _fetch_all_chains(api_key)
+    if not chains:
+        print("[ChainMilestone] No chains fetched.")
+        return
+
+    print(f"[ChainMilestone] Scanning {len(chains)} chains for threshold milestones...")
+    stored = 0
+
+    for threshold in CHAIN_THRESHOLDS:
+        if memory_db.get_milestone_record(f"chain_first_{threshold}") is not None:
+            continue
+        for chain in chains:
+            if chain.get("chain", 0) >= threshold:
+                start_ts = chain.get("start", 0)
+                date_str = (
+                    datetime.fromtimestamp(start_ts).strftime("%Y-%m-%d")
+                    if start_ts else today
+                )
+                label = f"{threshold:,}"
+                memory_db.add_faction_milestone(
+                    achievement=f"First faction chain to reach {label} hits",
+                    provided_date=date_str,
+                    milestone_type=f"chain_first_{threshold}",
+                    value=threshold,
+                    auto=True
+                )
+                stored += 1
+                break
+
+    print(f"[ChainMilestone] Stored {stored} new chain milestone(s).")
+
+
+# ==========================================
+# FACTION UPGRADE MILESTONES
+# ==========================================
+
+def detect_upgrade_milestones(api_key):
+    """
+    Fetches faction upgrades and stores each unlocked upgrade as a dated milestone.
+    Uses upgrade_{upgrade_id} as the type — idempotent, updates if level increased.
+
+    Handles the v2 structure:
+      upgrades.core.upgrades  → list of upgrade objects
+      upgrades.war            → list of branch dicts, each with .upgrades list
+      upgrades.peace          → same as war
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        res = requests.get(
+            f"{TORN_API}/faction?selections=upgrades&key={api_key}",
+            timeout=10
+        ).json()
+    except Exception as e:
+        print(f"[UpgradeMilestone] Upgrades API error: {e}")
+        return
+
+    upgrades = res.get("upgrades", {})
+    if not upgrades:
+        print("[UpgradeMilestone] No upgrades data returned.")
+        return
+
+    stored = 0
+
+    def _process_list(upgrade_list):
+        nonlocal stored
+        if not isinstance(upgrade_list, list):
+            return
+        for obj in upgrade_list:
+            if not isinstance(obj, dict):
+                continue
+            uid = obj.get("id")
+            level = obj.get("level", 0)
+            unlocked_at = obj.get("unlocked_at", 0)
+            name = obj.get("name", f"Upgrade #{uid}")
+            if not uid or not unlocked_at:
+                continue
+            date_str = datetime.fromtimestamp(unlocked_at).strftime("%Y-%m-%d")
+            mtype = f"upgrade_{uid}"
+            current = memory_db.get_milestone_record(mtype)
+            if current is None or level > current:
+                memory_db.add_faction_milestone(
+                    achievement=f"Faction upgrade unlocked: {name} (level {level})",
+                    provided_date=date_str,
+                    milestone_type=mtype,
+                    value=level,
+                    auto=True
+                )
+                stored += 1
+
+    # core branch: {upgrades: [...]}
+    core = upgrades.get("core", {})
+    if isinstance(core, dict):
+        _process_list(core.get("upgrades", []))
+
+    # war + peace branches: [{name, upgrades: [...]}, ...]
+    for section_key in ("war", "peace"):
+        section = upgrades.get(section_key, [])
+        if isinstance(section, list):
+            for branch in section:
+                if isinstance(branch, dict):
+                    _process_list(branch.get("upgrades", []))
+
+    print(f"[UpgradeMilestone] Stored {stored} upgrade milestone(s).")

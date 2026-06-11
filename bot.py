@@ -12,6 +12,7 @@ import ai_engine
 import chart_generator
 import memory_db
 import milestone_detector
+import ffscouter
 
 # 1. Flask Keep-Alive Setup
 app = Flask('')
@@ -212,6 +213,57 @@ async def payout(interaction: discord.Interaction,
     except Exception as e:
         # Use followup since the interaction was deferred
         await interaction.followup.send(f"❌ **Error:** {str(e)}")
+
+# ==========================================
+# BATTLE INTEL COMMAND
+# ==========================================
+
+@bot.tree.command(name="battle_intel", description="FFScouter war prediction — compare our stats vs an enemy faction")
+@app_commands.describe(enemy_faction_id="Enemy faction ID (default: last war's opponent)")
+async def battle_intel(interaction: discord.Interaction, enemy_faction_id: int = None):
+    await interaction.response.defer()
+
+    try:
+        api_key = memory_db.get_user_key(interaction.user.id)
+        if not api_key:
+            await interaction.followup.send("Need your Torn API key first. Run `/set_key`.")
+            return
+
+        # Resolve enemy faction ID
+        if not enemy_faction_id:
+            last_war = memory_db.wars_collection.find_one(sort=[("war_id", -1)])
+            if not last_war:
+                await interaction.followup.send("No war history found. Provide an enemy faction ID.")
+                return
+            enemy_faction_id = last_war.get("opponent_id")
+            enemy_name = last_war.get("opponent_name", f"Faction #{enemy_faction_id}")
+        else:
+            enemy_name = None  # scout_faction will fetch it from Torn
+
+        await interaction.followup.send("*(Jeremy cracks his knuckles)* Pulling intel, give me a sec...")
+
+        # Fetch both factions in sequence (FFScouter rate limit)
+        our_data = ffscouter.scout_faction(api_key)
+        their_data = ffscouter.scout_faction(api_key, faction_id=enemy_faction_id, faction_name=enemy_name)
+
+        if not our_data or not their_data:
+            await interaction.channel.send("❌ Couldn't pull stat data — check the faction ID or try again.")
+            return
+
+        comparison = ffscouter.compare_factions(our_data, their_data)
+        jeremy_take = ai_engine.present_battle_intel(comparison)
+
+        msg = f"{jeremy_take}\n```\n{comparison}\n```"
+        # Discord has a 2000 char limit; truncate comparison if needed
+        if len(msg) > 1990:
+            msg = f"{jeremy_take}\n```\n{comparison[:1600]}\n...(truncated)\n```"
+
+        await interaction.channel.send(msg)
+
+    except Exception as e:
+        print(f"BATTLE_INTEL ERROR: {e}")
+        await interaction.followup.send(f"❌ Intel failed: {e}")
+
 
 # 3. Safe Startup Loop
 async def start_bot():
