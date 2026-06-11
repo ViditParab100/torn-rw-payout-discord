@@ -16,6 +16,7 @@ lore_col = db["lore"]
 milestone_col = db["milestones"]
 conversations_col = db["conversations"]
 faction_stats_col = db["faction_stats"]
+player_profiles_col = db["player_profiles"]
 
 # ==========================================
 # API KEY VAULT (Secure Storage)
@@ -271,6 +272,26 @@ def save_faction_intel(faction_id, faction_name, intel_data):
 def get_faction_intel(faction_id):
     """Returns cached FFScouter data for a faction, or None."""
     return faction_stats_col.find_one({"faction_id": faction_id})
+
+
+# ==========================================
+# PLAYER PROFILE CACHE (Torn API enrichment)
+# ==========================================
+
+def save_player_profile(discord_id, profile_data):
+    """Upserts a player's Torn profile cache (keyed by Discord ID)."""
+    player_profiles_col.replace_one(
+        {"discord_id": str(discord_id)},
+        {**profile_data, "discord_id": str(discord_id)},
+        upsert=True
+    )
+
+def get_player_profile(discord_id):
+    """Returns the cached Torn profile dict for a player, or None."""
+    return player_profiles_col.find_one(
+        {"discord_id": str(discord_id)},
+        {"_id": 0}
+    )
 
 
 def get_war_period_stats(months=6):

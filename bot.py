@@ -14,6 +14,7 @@ import memory_db
 import milestone_detector
 import ffscouter
 import lore_db
+import player_intel
 
 # 1. Flask Keep-Alive Setup
 app = Flask('')
@@ -118,15 +119,21 @@ async def on_message(message):
                         if real_name not in people_mentioned:
                             people_mentioned.append(real_name)
 
-                # 3. Get Jeremy's reply
+                # 3. Get cached Torn profile for the speaker (injected into Jeremy's context)
+                discord_id = str(message.author.id)
+                speaker_api_key = memory_db.get_user_key(discord_id)
+                torn_context = player_intel.get_player_context(discord_id) if speaker_api_key else ""
+
+                # 4. Get Jeremy's reply
                 jeremy_reply, use_noping = ai_engine.chat_with_jeremy(
                     user_name=speaker_name,
                     user_message=clean_message,
                     message_history=message_history,
-                    people_mentioned=people_mentioned
+                    people_mentioned=people_mentioned,
+                    player_context=torn_context
                 )
 
-                # 4. Send the reply immediately
+                # 5. Send the reply immediately
                 if use_noping:
                     jeremy_reply = f"<:noPing:1469263150913290324> {jeremy_reply}"
                 if not jeremy_reply:
@@ -134,12 +141,17 @@ async def on_message(message):
 
                 await message.channel.send(jeremy_reply)
 
-                # 5. Fire memory consolidation in the background (doesn't block the reply)
+                # 6. Fire memory consolidation + profile enrichment in the background
                 loop = asyncio.get_event_loop()
                 loop.run_in_executor(
                     None,
                     lambda: ai_engine.consolidate_and_save(speaker_name, clean_message, jeremy_reply, people_mentioned)
                 )
+                if speaker_api_key:
+                    loop.run_in_executor(
+                        None,
+                        lambda: player_intel.enrich_player(speaker_api_key, discord_id, speaker_name)
+                    )
 
     await bot.process_commands(message)
 

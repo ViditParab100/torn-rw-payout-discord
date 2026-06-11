@@ -57,6 +57,18 @@ STATIC_FACTS = {
         "KnockOut WeightRoom sister faction is KnockOut RingSide",
         "KnockOut WeightRoom is led by ChineseGandalf with Xtatik as co-leader",
     ],
+    "Star_vader": [
+        "Star_vader created CyberJeremy as a digital tribute to JNRanger",
+        "Star_vader is from Mumbai, India",
+        "Star_vader is one of the bot creators for KnockOut WeightRoom",
+        "Star_vader lives in Bangalore",
+    ],
+    "Spidernnam": [
+        "Spidernnam left KnockOut WeightRoom to join a reviver faction for revive training",
+        "Spidernnam left the faction and is no longer a member of KOWR",
+        "Spidernnam departed to a reviver faction to train his reviving skill",
+        "Spidernnam used to be in KOWR but left to train as a reviver in a dedicated reviver faction",
+    ],
 }
 
 
