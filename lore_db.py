@@ -45,12 +45,13 @@ STATIC_FACTS = {
     "JNRanger": [
         "JNRanger is the in-game name of CyberJeremy, a late faction member",
         "JNRanger was a mechanic and welder from North Brampton, Ontario",
+        "JNRanger was the faction mechanic — he fixed cars and welded for the group",
         "JNRanger fought in wars 21076, 22195, and 24604 for KnockOut WeightRoom",
         "JNRanger personal best: 104 hits in War 24604 vs The Mile High Clinic",
     ],
-    "Stumptropic": [
-        "Stumptropic is the Leader of KnockOut RingSide, the sister faction to KOWR",
-        "The sister faction KnockOut RingSide is led by Stumptropic",
+    "Stumptronic": [
+        "Stumptronic is the Leader of KnockOut RingSide, the sister faction to KOWR",
+        "The sister faction KnockOut RingSide is led by Stumptronic",
     ],
     "KOWR": [
         "KOWR stands for KnockOut WeightRoom, faction tag KOWR, ID 43889",
