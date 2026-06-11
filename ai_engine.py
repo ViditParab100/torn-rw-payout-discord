@@ -8,6 +8,58 @@ SARVAM_KEY = os.environ.get("SARVAM_API_KEY")
 client = SarvamAI(api_subscription_key=SARVAM_KEY)
 MODEL_NAME = "sarvam-105b"
 
+# --- GENDER DATABASE ---
+# Values: "Male" | "Female" | "Enby" | None (unknown — fetch from Torn API via /update_intel)
+# M=he/him, F=she/her, Enby or unknown=they/them
+PLAYER_GENDERS = {
+    "Star_vader":        "Male",
+    "Spidernnam":        "Male",
+    "FlipJames":         "Male",
+    "ChineseGandalf":    "Male",
+    "Xtatik":            None,
+    "RockStarDad":       "Male",
+    "Kaemani":           None,
+    "Aberwarum":         None,
+    "Helena05":          "Female",
+    "Rockless":          "Female",
+    "KuroKrysel":        "Female",
+    "DaEpicGamer":       None,
+    "Rehsirap":          "Male",
+    "Xirken":            None,
+    "Profu":             None,
+    "BulletToothKep":    "Male",
+    "KisUziVertikal":    "Male",
+    "vmurda":            None,
+    "YoungDN":           "Male",
+    "_Andrew_":          "Male",
+    "Drago3636":         "Male",
+    "Craig_Demon":       "Male",
+    "Venomjr":           "Male",
+    "Dizzaster007":      None,
+    "luriorealacc":      None,
+    "PetrifiedSlug":     None,
+    "DontBustMyBalls":   "Male",
+    "Mythkiller":        "Male",
+    "MarmotMenace":      None,
+    "JNRanger":          "Male",
+}
+
+
+def load_genders_from_db():
+    """
+    Merges MongoDB faction_members gender data into the in-memory PLAYER_GENDERS dict.
+    Call at bot startup after MongoDB is available. Never raises.
+    """
+    try:
+        db_genders = memory_db.get_all_genders()
+        for name, gender in db_genders.items():
+            if gender:
+                PLAYER_GENDERS[name] = gender
+        print(f"[AI] Loaded {len(db_genders)} genders from DB into PLAYER_GENDERS.")
+    except Exception as e:
+        print(f"[AI] load_genders_from_db: {e}")
+
+
 # --- NICKNAME DATABASE ---
 NICKNAMES = {
     "Star_vader": ["Vader", "Star", "Champ"],
@@ -53,6 +105,7 @@ RULES:
 - Use player nicknames naturally when you know them.
 - Deflect off-topic questions (only Torn City, cars, welding, and beer are your world).
 - ONLY add [NOPING] at the very start of your reply if you are genuinely roasting KuroKrysel or Spidernnam — rare, extreme humor only. Never use it any other time. Keep the rest of your reply focused.
+- IDENTITY: Always refer to yourself as "Jeremy" or "CyberJeremy". Never use shortforms like "CJ", "Jer", or any other abbreviation for your own name.
 - CURIOUS SIDE: Roughly 1 in 3 messages, end your reply with a single casual question. Make it personal — ask about something you already know about them, or what a bro would naturally ask. Game stuff (stats, job, OCs, war training), real life stuff (car, weekend, work). ONE question max, never pushy."""
 
 
@@ -143,9 +196,10 @@ Write a war summary in Jeremy's voice. 3 paragraphs max. Praise the MVP, shoutou
 # ==========================================
 # NATURAL CHAT GENERATOR
 # ==========================================
-def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=None):
+def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=None, player_context=None):
     """
     message_history: list of {"role": "user"/"assistant", "content": str}
+    player_context: optional string from player_intel.get_player_context() for the speaker
     Returns: (clean_reply: str, use_noping: bool)
     """
     jeremy_style = load_jeremy_chats()
@@ -179,6 +233,35 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
         if extra_lines:
             lore_lines.append("SEMANTIC MATCHES:\n" + "\n".join(extra_lines))
 
+    # Inject player's live Torn profile when available
+    if player_context:
+        lore_lines.append(f"LIVE TORN DATA:\n{player_context}")
+
+    # FFScouter keyword detection — inject cached battle comparison when relevant
+    battle_keywords = [
+        "battle stats", "bs estimate", "can we beat", "how strong", "enemy stats",
+        "ffscouter", "ff scouter", "war stats", "outgun", "outclass",
+        "stronger than", "fight them", "match up", "matchup", "their strength"
+    ]
+    if any(kw in lower_msg for kw in battle_keywords):
+        try:
+            last_war = memory_db.wars_collection.find_one(sort=[("war_id", -1)])
+            if last_war:
+                enemy_id = last_war.get("opponent_id")
+                our_cache = memory_db.get_faction_intel(43889)
+                their_cache = memory_db.get_faction_intel(enemy_id) if enemy_id else None
+                if our_cache and their_cache:
+                    import ffscouter as _ff
+                    comparison = _ff.compare_factions(
+                        our_cache.get("intel", our_cache),
+                        their_cache.get("intel", their_cache)
+                    )
+                    lore_lines.append(
+                        f"CACHED BATTLE INTEL (last enemy: {their_cache.get('faction_name', '?')}):\n{comparison}"
+                    )
+        except Exception:
+            pass
+
     lore_context = "\n".join(lore_lines)
 
     # Episodic memory from past conversation summaries
@@ -206,6 +289,14 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
     # Compact nickname reference
     nick_ref = ", ".join(f"{k}={'/'.join(v)}" for k, v in NICKNAMES.items())
 
+    # Compact gender/pronoun reference (only known genders)
+    _pronoun = {"Male": "he/him", "Female": "she/her", "Enby": "they/them"}
+    gender_ref = ", ".join(
+        f"{name}={_pronoun.get(g, 'they/them')}"
+        for name, g in PLAYER_GENDERS.items()
+        if g is not None
+    )
+
     system_prompt = f"""{JEREMY_CORE}
 
 RIGHT NOW: {current_activity}
@@ -227,8 +318,9 @@ PERIOD SUMMARY: {period_line}
 {episode_context}
 
 NICKNAME QUICK-REF: {nick_ref}
+PRONOUNS: {gender_ref}
 
-IMPORTANT: When asked about wars, recent history, records, or how the faction is doing — answer from the WAR HISTORY and PERIOD SUMMARY above. Be specific: name opponents, results, dates. Use nicknames for players."""
+IMPORTANT: When asked about wars, recent history, records, or how the faction is doing — answer from the WAR HISTORY and PERIOD SUMMARY above. Be specific: name opponents, results, dates. Use nicknames and correct pronouns for players."""
 
     # System message first, then history turns, then current message
     messages = [{"role": "system", "content": system_prompt}]

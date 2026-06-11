@@ -14,6 +14,7 @@ import memory_db
 import milestone_detector
 import ffscouter
 import lore_db
+import player_intel
 
 # 1. Flask Keep-Alive Setup
 app = Flask('')
@@ -37,10 +38,12 @@ class RWBot(commands.Bot):
     async def setup_hook(self):
         await self.tree.sync()
         print(f"✅ Slash commands synced for {self.user}")
-        # Rebuild semantic lore index from MongoDB on startup
         import asyncio
         loop = asyncio.get_event_loop()
+        # Rebuild semantic lore index from MongoDB on startup
         loop.run_in_executor(None, lore_db.rebuild_from_mongodb)
+        # Load stored genders into in-memory PLAYER_GENDERS dict
+        loop.run_in_executor(None, ai_engine.load_genders_from_db)
 
 bot = RWBot()
 
@@ -118,15 +121,36 @@ async def on_message(message):
                         if real_name not in people_mentioned:
                             people_mentioned.append(real_name)
 
-                # 3. Get Jeremy's reply
+                # 3. Get Torn profile for the speaker — fetch synchronously if they're asking
+                #    about their own data, otherwise use the last cached version
+                discord_id = str(message.author.id)
+                speaker_api_key = memory_db.get_user_key(discord_id)
+
+                PROFILE_QUESTION_KWS = [
+                    "my level", "what level am i", "my title", "what's my title",
+                    "my company", "my shop", "how long has my company", "how many employees",
+                    "am i a donator", "my donator status", "my faction position",
+                    "my rank", "what rank am i", "my status", "where am i in torn",
+                    "how old am i in torn", "when did i join", "my torn age", "my age in torn",
+                ]
+                wants_fresh_profile = any(kw in clean_message for kw in PROFILE_QUESTION_KWS)
+
+                if speaker_api_key and wants_fresh_profile:
+                    # Synchronous fetch so Jeremy has up-to-date data before replying
+                    player_intel.enrich_player(speaker_api_key, discord_id, speaker_name)
+
+                torn_context = player_intel.get_player_context(discord_id) if speaker_api_key else ""
+
+                # 4. Get Jeremy's reply
                 jeremy_reply, use_noping = ai_engine.chat_with_jeremy(
                     user_name=speaker_name,
                     user_message=clean_message,
                     message_history=message_history,
-                    people_mentioned=people_mentioned
+                    people_mentioned=people_mentioned,
+                    player_context=torn_context
                 )
 
-                # 4. Send the reply immediately
+                # 5. Send the reply immediately
                 if use_noping:
                     jeremy_reply = f"<:noPing:1469263150913290324> {jeremy_reply}"
                 if not jeremy_reply:
@@ -134,12 +158,17 @@ async def on_message(message):
 
                 await message.channel.send(jeremy_reply)
 
-                # 5. Fire memory consolidation in the background (doesn't block the reply)
+                # 6. Fire memory consolidation + profile enrichment in the background
                 loop = asyncio.get_event_loop()
                 loop.run_in_executor(
                     None,
                     lambda: ai_engine.consolidate_and_save(speaker_name, clean_message, jeremy_reply, people_mentioned)
                 )
+                if speaker_api_key:
+                    loop.run_in_executor(
+                        None,
+                        lambda: player_intel.enrich_player(speaker_api_key, discord_id, speaker_name)
+                    )
 
     await bot.process_commands(message)
 
@@ -268,6 +297,30 @@ async def battle_intel(interaction: discord.Interaction, enemy_faction_id: int =
     except Exception as e:
         print(f"BATTLE_INTEL ERROR: {e}")
         await interaction.followup.send(f"❌ Intel failed: {e}")
+
+
+# ==========================================
+# UPDATE INTEL COMMAND
+# ==========================================
+
+@bot.tree.command(name="update_intel", description="Refresh faction member genders + Torn IDs from the Torn API")
+async def update_intel(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    api_key = memory_db.get_user_key(interaction.user.id)
+    if not api_key:
+        await interaction.followup.send("Need your Torn API key first. Run `/set_key`.")
+        return
+
+    await interaction.followup.send("*(Jeremy cracks knuckles)* Pulling faction intel... this'll take a minute.")
+
+    loop = asyncio.get_event_loop()
+    count = await loop.run_in_executor(None, lambda: player_intel.fetch_faction_genders(api_key))
+    ai_engine.load_genders_from_db()
+
+    await interaction.channel.send(
+        f"Done. Updated {count} member profiles (genders, levels, titles) in the vault."
+    )
 
 
 # 3. Safe Startup Loop

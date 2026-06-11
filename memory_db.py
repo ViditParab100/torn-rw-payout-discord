@@ -16,6 +16,8 @@ lore_col = db["lore"]
 milestone_col = db["milestones"]
 conversations_col = db["conversations"]
 faction_stats_col = db["faction_stats"]
+player_profiles_col = db["player_profiles"]
+faction_members_col = db["faction_members"]
 
 # ==========================================
 # API KEY VAULT (Secure Storage)
@@ -86,20 +88,34 @@ def get_last_5_wars_stats():
 # ==========================================
 
 def update_player_lore(username, new_bit):
-    """Adds a new memory to a player's file and indexes it in ChromaDB."""
-    lore_col.update_one(
-        {"username": username.lower()},
-        {
-            "$set": {"username_display": username},
-            "$push": {
-                "lore_bits": {
-                    "$each": [new_bit],
-                    "$slice": -10
-                }
+    """
+    Adds a new memory to a player's file.
+    When the active lore_bits cap (10) is exceeded, displaced facts are moved to
+    archived_lore_bits rather than being silently discarded.
+    """
+    username_lower = username.lower()
+    doc = lore_col.find_one({"username": username_lower})
+    bits = doc.get("lore_bits", []) if doc else []
+
+    # Facts that will be displaced when we add one and keep only the last 10
+    displaced = bits[:max(0, len(bits) + 1 - 10)]
+
+    update_ops = {
+        "$set": {"username_display": username},
+        "$push": {
+            "lore_bits": {
+                "$each": [new_bit],
+                "$slice": -10
             }
-        },
-        upsert=True
-    )
+        }
+    }
+    if displaced:
+        update_ops["$addToSet"] = {
+            "archived_lore_bits": {"$each": displaced}
+        }
+
+    lore_col.update_one({"username": username_lower}, update_ops, upsert=True)
+
     # Mirror into ChromaDB for semantic search — lazy import to avoid circular load at module init
     try:
         import lore_db
@@ -271,6 +287,60 @@ def save_faction_intel(faction_id, faction_name, intel_data):
 def get_faction_intel(faction_id):
     """Returns cached FFScouter data for a faction, or None."""
     return faction_stats_col.find_one({"faction_id": faction_id})
+
+
+# ==========================================
+# PLAYER PROFILE CACHE (Torn API enrichment)
+# ==========================================
+
+def save_player_profile(discord_id, profile_data):
+    """Upserts a player's Torn profile cache (keyed by Discord ID)."""
+    player_profiles_col.replace_one(
+        {"discord_id": str(discord_id)},
+        {**profile_data, "discord_id": str(discord_id)},
+        upsert=True
+    )
+
+def get_player_profile(discord_id):
+    """Returns the cached Torn profile dict for a player, or None."""
+    return player_profiles_col.find_one(
+        {"discord_id": str(discord_id)},
+        {"_id": 0}
+    )
+
+
+# ==========================================
+# FACTION MEMBER REGISTRY (genders + torn IDs)
+# ==========================================
+
+def save_faction_member(torn_id, torn_name, gender=None, extra=None):
+    """
+    Upserts a faction member record. Used primarily for gender + torn_id storage.
+    extra: optional dict of additional fields to merge in.
+    """
+    doc = {"torn_id": torn_id, "torn_name": torn_name}
+    if gender is not None:
+        doc["gender"] = gender
+    if extra:
+        doc.update(extra)
+    faction_members_col.update_one(
+        {"torn_id": torn_id},
+        {"$set": doc},
+        upsert=True
+    )
+
+def get_all_genders():
+    """Returns {torn_name: gender} for all stored members. None values excluded."""
+    docs = list(faction_members_col.find(
+        {"gender": {"$exists": True, "$ne": None}},
+        {"torn_name": 1, "gender": 1, "_id": 0}
+    ))
+    return {d["torn_name"]: d["gender"] for d in docs}
+
+def get_member_torn_id(torn_name):
+    """Look up a player's Torn ID by their display name. Returns None if not found."""
+    doc = faction_members_col.find_one({"torn_name": torn_name}, {"torn_id": 1})
+    return doc["torn_id"] if doc else None
 
 
 def get_war_period_stats(months=6):

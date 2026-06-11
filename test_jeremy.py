@@ -1,10 +1,11 @@
 """
 CyberJeremy Test Suite
 ======================
-Three layers:
+Four layers:
   1. Semantic search (fast, deterministic) — expected player in top N results
   2. Meaning equivalence — two phrasings should surface the same player
   3. Jeremy chat (slower, generative) — keyword checks on live Sarvam responses
+  4. Player intel — title tier logic, context formatting (no API needed)
 
 Run:  python test_jeremy.py
       python test_jeremy.py --chat   # include the slower generative tests
@@ -58,15 +59,15 @@ SEMANTIC_CASES = [
     ("who is the co-leader",                   "Xtatik",          6, "co-leader lookup"),
     ("who is second in command",               "Xtatik",          4, "phrasing: second in command"),
     ("who handles leadership with ChineseGandalf", "Xtatik",      5, "association-based"),
-    # JNRanger / Jeremy
-    ("who was the mechanic in the faction",    "JNRanger",        3, "mechanic role"),
-    ("who was the welder",                     "JNRanger",        4, "phrasing: welder"),
+    # JNRanger / Jeremy (real-life trade — mechanic and welder, NOT a faction role)
+    ("who was a mechanic and welder by trade", "JNRanger",        3, "real-life trade"),
+    ("who was the welder from North Brampton", "JNRanger",        4, "phrasing: welder + location"),
     ("who scored 104 hits in a war",           "JNRanger",        3, "personal best stat"),
     ("who is CyberJeremy based on",            "JNRanger",        4, "JNRanger identity"),
     # Members
     ("who lives in Bangalore",                 "Star_vader",      3, "location fact"),
-    ("who is working on his revive skill",     "Spidernnam",      4, "game activity"),
-    ("who left the faction",                   "Spidernnam",      5, "departure fact"),
+    ("who left to train in a reviver faction",  "Spidernnam",      4, "reviver faction departure"),
+    ("who left KOWR to train reviving",        "Spidernnam",      5, "departure to reviver faction"),
     # Sister faction
     ("who leads KnockOut RingSide",            "Stumptronic",     3, "sister faction leader"),
     ("who runs the sister faction",            "Stumptronic",     4, "phrasing: sister faction"),
@@ -103,14 +104,14 @@ EQUIV_CASES = [
      "who is second in command",
      "Xtatik",
      "co-leader phrasing A vs B"),
-    ("who was our mechanic",
-     "who was the welder in the faction",
+    ("who was a mechanic by trade",
+     "who was a welder from North Brampton",
      "JNRanger",
-     "JNRanger phrasing A vs B"),
-    ("who is working on revive skill",
-     "who is trying to get better at reviving",
+     "JNRanger real-life trade phrasing A vs B"),
+    ("who left to train as a reviver",
+     "who joined a reviver faction to practice reviving",
      "Spidernnam",
-     "Spider revive phrasing A vs B"),
+     "Spider reviver faction phrasing A vs B"),
 ]
 
 def run_equiv(qa, qb, expected, note):
@@ -217,9 +218,149 @@ else:
             fail(f"[{desc}] Exception: {e}")
             failed += 1
 
+    # Extra Layer 3 test: Jeremy never uses shortforms for his own name
+    CHAT_CASES.append((
+        "FlipJames",
+        "hey CJ whats up, how you doing?",
+        ["jeremy", "cyberjeremy", "cyber jeremy"],
+        "Jeremy self-identifies as Jeremy/CyberJeremy, not CJ"
+    ))
+
     for case in CHAT_CASES:
         run_chat(*case)
         time.sleep(1)  # small pause between Sarvam calls
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAYER 4 — Player Intel (unit tests, no API needed)
+# ══════════════════════════════════════════════════════════════════════════════
+header("LAYER 4 — Player Intel (title tiers, context formatting)")
+
+import player_intel
+from datetime import datetime as _dt
+
+# 4a: Title tier ordering
+TIER_CASES = [
+    ("recruit",     "captain",     True,  "military tier progression"),
+    ("samaritan",   "avenger",     True,  "samaritan < avenger"),
+    ("grandmaster", "recruit",     False, "grandmaster > recruit"),
+    ("recruit",     "recruit",     False, "same title = not a promotion"),
+    ("unknowntitle","avenger",     True,  "unknown old title treated as promotion"),
+]
+
+def run_tier(old_t, new_t, expect_promo, note):
+    global passed, failed
+    old_rank = player_intel._title_rank(old_t)
+    new_rank = player_intel._title_rank(new_t)
+    is_promo = new_rank > old_rank or old_rank == -1
+    if is_promo == expect_promo:
+        ok(f"[{note}] '{old_t}'→'{new_t}' promo={is_promo}")
+        passed += 1
+    else:
+        fail(f"[{note}] Expected promo={expect_promo}, got {is_promo} "
+             f"(ranks: {old_rank}→{new_rank})")
+        failed += 1
+
+for case in TIER_CASES:
+    run_tier(*case)
+
+# 4b: Context formatting with a mock profile
+mock_discord_id = "TEST_PLAYER_INTEL_999"
+mock_profile = {
+    "discord_id": mock_discord_id,
+    "torn_name": "TestWarrior",
+    "level": 55,
+    "title": "Veteran",
+    "donator": True,
+    "status": "Okay",
+    "faction_position": "Member",
+    "age_days": 730,
+    "company": {
+        "name": "Warriors Auto Shop",
+        "type": "Auto Dealership",
+        "days_old": 45,
+        "rating": 3,
+        "employee_count": 6,
+        "director_name": "TestWarrior",
+    },
+    "job_position": "Director",
+    "company_name": "Warriors Auto Shop",
+    "fetched_at": _dt.now(),
+}
+memory_db.save_player_profile(mock_discord_id, mock_profile)
+ctx = player_intel.get_player_context(mock_discord_id)
+
+ctx_checks = [
+    ("Level 55", "level in context"),
+    ("Veteran",  "title in context"),
+    ("Donator",  "donator flag in context"),
+    ("Warriors Auto Shop", "company name in context"),
+    ("3 stars",  "company stars in context"),
+    ("45 days",  "company age in context"),
+    ("6 staff",  "employee count in context"),
+]
+for keyword, note in ctx_checks:
+    if keyword.lower() in ctx.lower():
+        ok(f"[{note}] '{keyword}' found in context")
+        passed += 1
+    else:
+        fail(f"[{note}] '{keyword}' MISSING from context: {ctx[:200]}")
+        failed += 1
+
+# Cleanup mock
+memory_db.player_profiles_col.delete_one({"discord_id": mock_discord_id})
+
+# 4c: Lore archiving — add 11 facts, verify the oldest is archived
+TEST_PLAYER_ARCHIVE = "ArchiveTestPlayer_999"
+memory_db.lore_col.delete_one({"username": TEST_PLAYER_ARCHIVE.lower()})  # clean slate
+
+for i in range(11):
+    memory_db.update_player_lore(TEST_PLAYER_ARCHIVE, f"Fact number {i}")
+
+doc = memory_db.lore_col.find_one({"username": TEST_PLAYER_ARCHIVE.lower()})
+active_bits = doc.get("lore_bits", []) if doc else []
+archived_bits = doc.get("archived_lore_bits", []) if doc else []
+
+# Active should have last 10 (Facts 1-10), archived should have Fact 0
+archive_ok = "Fact number 0" in archived_bits
+active_ok = len(active_bits) == 10 and "Fact number 10" in active_bits
+
+if archive_ok:
+    ok("[lore archive] displaced fact stored in archived_lore_bits")
+    passed += 1
+else:
+    fail(f"[lore archive] 'Fact number 0' not in archived: {archived_bits[:3]}")
+    failed += 1
+
+if active_ok:
+    ok("[lore archive] active lore_bits capped at 10 with newest fact present")
+    passed += 1
+else:
+    fail(f"[lore archive] active bits={len(active_bits)}, expected 10: {active_bits[:3]}")
+    failed += 1
+
+memory_db.lore_col.delete_one({"username": TEST_PLAYER_ARCHIVE.lower()})
+
+# 4d: Gender dict loaded correctly
+import ai_engine
+known_female = ["KuroKrysel", "Helena05", "Rockless"]
+known_male   = ["Star_vader", "ChineseGandalf", "RockStarDad", "FlipJames", "JNRanger"]
+
+for name in known_female:
+    if ai_engine.PLAYER_GENDERS.get(name) == "Female":
+        ok(f"[gender seed] {name} = Female")
+        passed += 1
+    else:
+        fail(f"[gender seed] {name} expected Female, got {ai_engine.PLAYER_GENDERS.get(name)}")
+        failed += 1
+
+for name in known_male:
+    if ai_engine.PLAYER_GENDERS.get(name) == "Male":
+        ok(f"[gender seed] {name} = Male")
+        passed += 1
+    else:
+        fail(f"[gender seed] {name} expected Male, got {ai_engine.PLAYER_GENDERS.get(name)}")
+        failed += 1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
