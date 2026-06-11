@@ -14,7 +14,7 @@ wars_collection = db["wars"]
 keys_collection = db["user_keys"]
 lore_col = db["lore"]
 milestone_col = db["milestones"]
-# (Removed history_col entirely to keep things lean!)
+conversations_col = db["conversations"]
 
 # ==========================================
 # API KEY VAULT (Secure Storage)
@@ -130,3 +130,20 @@ def get_faction_milestones():
     """Returns the 5 most recent achievements for Jeremy to mention."""
     docs = list(milestone_col.find().sort("_id", -1).limit(5))
     return [{"Achievement": d["achievement"], "Date": d["date"]} for d in docs]
+
+# ==========================================
+# EPISODIC MEMORY (Conversation Summaries)
+# ==========================================
+
+def save_conversation_summary(summary, players_mentioned=None):
+    """Stores a compressed summary of a conversation for Jeremy's episodic recall."""
+    conversations_col.insert_one({
+        "summary": summary,
+        "players": players_mentioned or [],
+        "timestamp": datetime.now()
+    })
+
+def get_recent_summaries(limit=3):
+    """Returns recent conversation summaries so Jeremy can recall past exchanges."""
+    docs = list(conversations_col.find().sort("timestamp", -1).limit(limit))
+    return [d["summary"] for d in docs]

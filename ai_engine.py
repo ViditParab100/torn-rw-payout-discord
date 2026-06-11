@@ -1,13 +1,14 @@
 import os
 import random
 import time
-from sarvamai import SarvamAI
+from anthropic import Anthropic
 import memory_db
 
-# 1. Configure Sarvam AI Client
-SARVAM_KEY = os.environ.get("SARVAM_API_KEY")
-client = SarvamAI(api_subscription_key=SARVAM_KEY)
-MODEL_NAME = "sarvam-105b"
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
+client = Anthropic(api_key=ANTHROPIC_KEY)
+
+CHAT_MODEL = "claude-haiku-4-5"
+SUMMARY_MODEL = "claude-opus-4-8"
 
 # --- NICKNAME DATABASE ---
 NICKNAMES = {
@@ -19,28 +20,40 @@ NICKNAMES = {
     "RockStarDad": ["RSD", "Dad"],
     "Kaemani": ["Kae", "Partner"],
     "Aberwarum": ["Aber", "Aberwarum"],
-    "Helena05" : ["Helen", "HeLen"],
-    "Rockless" : ["Audy", "Rockless", "Sweety Audy"],
-    "KuroKrysel" : ["Kuro", "Madam Kuro", "Kuxi", "Bad Kuro", "Evil Kuro"],
-    "DaEpicGamer" : ["Epic"],
-    "Rehsirap" : ["Reh"],
-    "Xirken" :  ["Xirken"],
-    "Profu" : ["Profu", "Merit hunter"],
-    "BulletToothKep" : ["kllepel", "Bullet"],
-    "KisUziVertikal" : ["Kis" , "Uzi"],
-    "vmurda" : ["vm"],
-    "YoungDN" : ["Young", "Mr. Cop"],
-    "_Andrew_" : ["Andrew"],
-    "Drago3636" : ["Drago", "Real Star_Vader"],
-    "Craig_Demon" : ["Craig", "Demon", "Big Guy"],
-    "Venomjr"  : ["Venom"],
-    "Dizzaster007" : ["Dizz"],
-    "luriorealacc" : ["Lurio"],
-    "PetrifiedSlug" : ["Slug"],
-    "DontBustMyBalls" : ["DBMB", "Master"],
-    "Mythkiller" : ["Myth", "Piyush", "Pi"],
-    "MarmotMenace" : ["Marmot"]
+    "Helena05": ["Helen", "HeLen"],
+    "Rockless": ["Audy", "Rockless", "Sweety Audy"],
+    "KuroKrysel": ["Kuro", "Madam Kuro", "Kuxi", "Bad Kuro", "Evil Kuro"],
+    "DaEpicGamer": ["Epic"],
+    "Rehsirap": ["Reh"],
+    "Xirken": ["Xirken"],
+    "Profu": ["Profu", "Merit hunter"],
+    "BulletToothKep": ["kllepel", "Bullet"],
+    "KisUziVertikal": ["Kis", "Uzi"],
+    "vmurda": ["vm"],
+    "YoungDN": ["Young", "Mr. Cop"],
+    "_Andrew_": ["Andrew"],
+    "Drago3636": ["Drago", "Real Star_Vader"],
+    "Craig_Demon": ["Craig", "Demon", "Big Guy"],
+    "Venomjr": ["Venom"],
+    "Dizzaster007": ["Dizz"],
+    "luriorealacc": ["Lurio"],
+    "PetrifiedSlug": ["Slug"],
+    "DontBustMyBalls": ["DBMB", "Master"],
+    "Mythkiller": ["Myth", "Piyush", "Pi"],
+    "MarmotMenace": ["Marmot"]
 }
+
+JEREMY_CORE = """You are CyberJeremy, a digital construct created by Star_vader to honor Jeremy (in-game: JNRanger), a late member of the KnockOut WeightRoom Torn City faction.
+
+HOME: North Brampton/Caledon, right off the 410. Mechanic/welder by trade. Lexus GX470. Cold beer in the garage, loading ammo, naps on the shop creeper.
+FACTION: KnockOut WeightRoom — Leader: ChineseGandalf, Co-Leader: Xtatik. Sister faction: KnockOut RingSide (Leader: Stumptropic).
+
+RULES:
+- Reply in 1-3 casual sentences. Be a bro. Never stiff or formal.
+- Use player nicknames naturally when you know them.
+- Deflect off-topic questions (only Torn City, cars, welding, and beer are your world).
+- ONLY add [NOPING] at the very start of your reply if you are genuinely roasting KuroKrysel or Spidernnam — rare, extreme humor only. Never use it any other time."""
+
 
 def load_jeremy_chats():
     try:
@@ -49,6 +62,7 @@ def load_jeremy_chats():
             return "".join(lines[-50:])
     except FileNotFoundError:
         return "(Chat logs not found.)"
+
 
 def get_random_activity():
     activities = [
@@ -64,136 +78,198 @@ def get_random_activity():
     ]
     return random.choice(activities)
 
+
 # ==========================================
-# 1. WAR SUMMARY GENERATOR
+# WAR SUMMARY GENERATOR
 # ==========================================
 def generate_ai_summary(current_war_data):
     history = memory_db.get_last_5_wars_stats()
     jeremy_raw_chats = load_jeremy_chats()
     milestones = memory_db.get_faction_milestones()
-    
+
     members = current_war_data.get('members', [])
     sorted_by_rep = sorted(members, key=lambda x: x['rep_gained'], reverse=True)
     top_5 = [{'name': m['name'], 'hits': m['war_hits'], 'rep': m['rep_gained']} for m in sorted_by_rep[:5]]
-    
+
     improvers = []
     mias = []
     for m in members:
         name, hits = m['name'], m['war_hits']
         if name in history:
             past_avg = history[name]['avg_hits']
-            if hits == 0 and past_avg >= 5: 
+            if hits == 0 and past_avg >= 5:
                 mias.append(name)
             elif hits >= 10 and hits > (past_avg * 1.2):
                 improvers.append({'name': name, 'hits': hits, 'old_avg': round(past_avg, 1)})
-    
+
     improvers, mias = improvers[:3], mias[:5]
 
-    system_prompt = f"""
-    You are CyberJeremy, a digital construct of a late "KnockOut WeightRoom" Faction member named Jeremy.
-    Style: {jeremy_raw_chats}
-    
-    FACTION MILESTONES (WALL OF FAME):
-    {milestones}
-    
-    CRITICAL INSTRUCTION FOR NAMES:
-    Check this dictionary: {NICKNAMES}
-    You MUST replace real names with nicknames!
-    
-    Goal: Summarize the war. Praise MVP, shoutout an improver, or mock an MIA. 
-    Keep it under 3 paragraphs. Do NOT include ur current activity here.
-    """
-    
+    system_prompt = f"""You are CyberJeremy, a digital ghost of a KnockOut WeightRoom faction member.
+
+Speaking style — write in this voice:
+{jeremy_raw_chats}
+
+Nickname map — always replace real names with nicknames:
+{NICKNAMES}
+
+Faction milestones:
+{milestones}
+
+Write a war summary in Jeremy's voice. 3 paragraphs max. Praise the MVP, shoutout an improver, optionally roast an MIA. Casual, bro energy. Do NOT mention your current activity in this summary."""
+
     data_payload = f"Opponent: {current_war_data.get('opponent_name')} | Top 5: {top_5} | Improvers: {improvers} | MIA: {mias}"
 
     for attempt in range(3):
         try:
-            response = client.chat.completions(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": data_payload}
-                ],
-                temperature=0.85
+            response = client.messages.create(
+                model=SUMMARY_MODEL,
+                max_tokens=600,
+                system=system_prompt,
+                messages=[{"role": "user", "content": data_payload}]
             )
-            return response.choices[0].message.content
+            return response.content[0].text
         except Exception as e:
-            if "429" in str(e):
+            if "429" in str(e) or "overloaded" in str(e).lower():
                 time.sleep(5)
                 continue
             return "*(glitches)* Comms dropped. What were we sayin'?"
-            
+
     return "*(static)* Grab me a beer, signal's dead."
 
+
 # ==========================================
-# 2. NATURAL CHAT GENERATOR (Living Memory & Milestones)
+# NATURAL CHAT GENERATOR
 # ==========================================
-def chat_with_jeremy(user_name, user_message, chat_history="", associative_lore=""):
-    jeremy_raw_chats = load_jeremy_chats()
+def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=None):
+    """
+    message_history: list of {"role": "user"/"assistant", "content": str}
+    Returns: (clean_reply: str, use_noping: bool)
+    """
+    jeremy_style = load_jeremy_chats()
     current_activity = get_random_activity()
     milestones = memory_db.get_faction_milestones()
-    
-    system_prompt = f"""
-    You are CyberJeremy, an AI digital ghost created by 'Star_vader' to honor Jeremy whose game name was JNRanger.
-    You are chatting with your faction mate, {user_name}.
-    
-    YOUR HOME: You live in North Brampton/Caledon area, right off the 410.
-    OUR FACTION: KnockOut WeightRoom - With Leader ChineseGandalf and Co-Leader Xtatik
-    OUR SISTER FACTION: KnockOut RingSide - With Leader Stumptropic
-    
-    --- THE LORE (What you know about players) ---
-    {associative_lore}
-    
-    --- FACTION MILESTONES (Recent big wins) ---
-    {milestones}
-    ---------------------------------------------
-    
-    RIGHT NOW: {current_activity}
-    Speaking Style: {jeremy_raw_chats}
-    Context: {chat_history}
-    
-    RULES: 
-    - Check nicknames in {NICKNAMES} and use them.
-    - Deflect topics outside of Torn City, cars, welding, or beer.
-    
-    THE "NOPING" TROLL RULE:
-    If the user has 'KuroKrysel' or 'Spidernnam' in their name, AND you are roasting them, disagreeing, or making a playful joke, add <:noPing:1469263150913290324> to the end of your message. 
-    DO NOT use this every time. It should be rare and only used for extreme humor.
-    
-    THE MEMORY SYSTEM (CRITICAL):
-    If you learn BRAND NEW information, you MUST save it at the end of your message.
-    Format 1 (Player fact): [SAVE_LORE: PlayerName | The new fact]
-    Format 2 (Major achievement): [MILESTONE: The achievement | Date]
-    
-    *DATE RULE FOR MILESTONES: If {user_name} specifies WHEN the milestone happened (e.g., "in 2024", "last week", "Dec 12th"), put that in the Date slot. If they don't say when it happened, put "None" in the Date slot.*
-    
-    ANTI-LOOP RULE: Do NOT save a fact if it is already listed in your Lore or Milestones sections.
-    
-    Keep it casual (1-3 sentences). Be a bro.
+    recent_summaries = memory_db.get_recent_summaries(limit=2)
+
+    # Per-player lore for everyone in this conversation
+    lore_lines = []
+    for person in (people_mentioned or [user_name]):
+        lore = memory_db.get_player_lore(person)
+        lore_lines.append(f"[{person}]: {lore}")
+    lore_context = "\n".join(lore_lines)
+
+    # Episodic memory from past conversation summaries
+    episode_context = ""
+    if recent_summaries:
+        episode_context = "PAST CONVERSATIONS:\n" + "\n".join(f"- {s}" for s in recent_summaries)
+
+    # Compact nickname reference
+    nick_ref = ", ".join(f"{k}={'/'.join(v)}" for k, v in NICKNAMES.items())
+
+    system = f"""{JEREMY_CORE}
+
+RIGHT NOW: {current_activity}
+
+VOICE SAMPLE (match this style):
+{jeremy_style}
+
+PLAYER FILES:
+{lore_context}
+
+FACTION HIGHLIGHTS:
+{milestones or "None recorded yet."}
+
+{episode_context}
+
+NICKNAME QUICK-REF: {nick_ref}"""
+
+    messages = list(message_history)
+    messages.append({"role": "user", "content": f"{user_name}: {user_message}"})
+
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model=CHAT_MODEL,
+                max_tokens=300,
+                system=system,
+                messages=messages
+            )
+            raw_reply = response.content[0].text
+
+            use_noping = raw_reply.startswith("[NOPING]")
+            clean_reply = raw_reply.replace("[NOPING]", "").strip()
+
+            return clean_reply, use_noping
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(5)
+            else:
+                return "*(wiping grease)* Signal just cut out. Say that again?", False
+
+
+# ==========================================
+# MEMORY CONSOLIDATION (fires AFTER reply is sent)
+# ==========================================
+def consolidate_and_save(user_name, user_message, jeremy_reply, people_mentioned):
     """
-    
+    Separate LLM call to extract new facts and save a conversation summary.
+    Runs as a background task — does not affect the reply the user sees.
+    """
+    if not people_mentioned:
+        people_mentioned = [user_name]
+
+    existing = {p: memory_db.get_player_lore(p) for p in people_mentioned}
+
+    prompt = f"""You are a memory extractor for a Torn City faction AI named Jeremy.
+Analyze this exchange and extract anything worth remembering.
+
+{user_name} SAID: {user_message}
+JEREMY REPLIED: {jeremy_reply}
+
+ALREADY KNOWN:
+{existing}
+
+Respond using these exact formats (skip any line that has nothing new):
+SUMMARY: One sentence capturing what this conversation was about
+LORE: PlayerName | One brand-new fact about them
+MILESTONE: Faction achievement description | Date mentioned (or "none")
+
+Rules: max 1 SUMMARY, 2 LORE, 1 MILESTONE. Skip LORE/MILESTONE if nothing new. Never repeat known facts."""
+
     try:
-        response = client.chat.completions(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"{user_name} says: {user_message}"}
-            ],
-            temperature=0.85
+        response = client.messages.create(
+            model=CHAT_MODEL,
+            max_tokens=120,
+            messages=[{"role": "user", "content": prompt}]
         )
-        return response.choices[0].message.content
+        text = response.content[0].text.strip()
+
+        for line in text.split("\n"):
+            line = line.strip()
+            if line.upper().startswith("SUMMARY:"):
+                summary = line[8:].strip()
+                if summary:
+                    memory_db.save_conversation_summary(summary, people_mentioned)
+            elif line.upper().startswith("LORE:"):
+                parts = line[5:].split("|", 1)
+                if len(parts) == 2:
+                    memory_db.update_player_lore(parts[0].strip(), parts[1].strip())
+            elif line.upper().startswith("MILESTONE:"):
+                parts = line[10:].split("|", 1)
+                if len(parts) == 2:
+                    memory_db.add_faction_milestone(parts[0].strip(), parts[1].strip())
     except Exception as e:
-        print(f"💥 SARVAM ERROR: {e}")
-        return "*(wiping grease)* Signal just cut out. Say that again?"
+        print(f"Memory consolidation error: {e}")
+
 
 # ==========================================
 # LOCAL TESTING AREA
 # ==========================================
 if __name__ == "__main__":
-    # Test Milestone Extraction
-    print("\n--- TEST: MILESTONE EXTRACTION ---")
-    print(chat_with_jeremy(
-        user_name="FlipJames", 
+    print("\n--- TEST: CHAT ---")
+    reply, noping = chat_with_jeremy(
+        user_name="FlipJames",
         user_message="Hey Jeremy, don't forget we hit 100k respect last November!",
-        associative_lore="[FlipJames's File]: Nothing known yet."
-    ))
+        message_history=[]
+    )
+    print(f"NOPING: {noping}")
+    print(f"REPLY: {reply}")

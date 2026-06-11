@@ -6,6 +6,5 @@ fpdf2
 openpyxl
 flask
 matplotlib
-google-generativeai
+anthropic
 pymongo[srv]
-sarvamai

@@ -7,7 +7,6 @@ from flask import Flask
 from threading import Thread
 import os
 import asyncio
-import re  # <--- NEW: Required for extracting Jeremy's memories
 
 import ai_engine
 import chart_generator
@@ -86,82 +85,52 @@ async def on_message(message):
                     print(f"CRITICAL ERROR IN SCOUT: {e}")
                     await message.channel.send(f"❌ **CyberJeremy Error:** Something's wrong in the shop. {e}")
 
-        # --- ROUTE B: NORMAL CHAT WITH STEALTH MEMORY ---
+        # --- ROUTE B: NATURAL CHAT ---
         else:
             async with message.channel.typing():
-                # 1. Fetch recent history for context
-                raw_history = [msg async for msg in message.channel.history(limit=7)]
+                # 1. Build proper conversation turns from recent channel history
+                raw_history = [msg async for msg in message.channel.history(limit=8)]
                 raw_history.reverse()
-                
-                history_text = ""
+
+                message_history = []
                 for msg in raw_history:
-                    if msg.id != message.id:
-                        history_text += f"{msg.author.display_name}: {msg.content}\n"
+                    if msg.id == message.id:
+                        continue
+                    if msg.author == bot.user:
+                        message_history.append({"role": "assistant", "content": msg.clean_content})
+                    else:
+                        message_history.append({"role": "user", "content": f"{msg.author.display_name}: {msg.clean_content}"})
 
-                # 2. ASSOCIATIVE MEMORY: Who are we talking about?
+                # 2. Detect everyone mentioned for associative lore loading
                 speaker_name = message.author.display_name
-                people_to_load = [speaker_name] # Always load the speaker
-                
-                # Scan the message for other faction mates
+                people_mentioned = [speaker_name]
                 for real_name, nicks in ai_engine.NICKNAMES.items():
-                    if real_name.lower() in clean_message.lower() or any(n.lower() in clean_message.lower() for n in nicks):
-                        if real_name not in people_to_load:
-                            people_to_load.append(real_name)
-                
-                # Fetch DB files for EVERYONE mentioned
-                combined_lore = ""
-                for person in people_to_load:
-                    # Notice we fetch by NAME now, not Discord ID!
-                    lore = memory_db.get_player_lore(person) 
-                    combined_lore += f"[{person}'s File]: {lore}\n"
+                    if real_name.lower() in clean_message or any(n.lower() in clean_message for n in nicks):
+                        if real_name not in people_mentioned:
+                            people_mentioned.append(real_name)
 
-                # 3. Get AI Response
-                ai_reply = ai_engine.chat_with_jeremy(
-                    user_name=speaker_name, 
+                # 3. Get Jeremy's reply
+                jeremy_reply, use_noping = ai_engine.chat_with_jeremy(
+                    user_name=speaker_name,
                     user_message=clean_message,
-                    chat_history=history_text,
-                    associative_lore=combined_lore # Pass the new combined brain!
+                    message_history=message_history,
+                    people_mentioned=people_mentioned
                 )
 
-                # ==========================================
-                # BULLETPROOF EXTRACTION LOGIC
-                # ==========================================
-                
-                # 1. Extract Player Lore
-                lore_matches = re.findall(r"\[SAVE_LORE:\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
-                for subject, fact in lore_matches:
-                    memory_db.update_player_lore(subject.strip(), fact.strip()) 
-
-                # 2. Extract Milestones (Now with Date Support!)
-                milestone_matches = re.findall(r"\[MILESTONE:\s*([^|\]]+)\s*\|\s*([^\]]+)\]", ai_reply, re.IGNORECASE)
-                for achievement, date_str in milestone_matches:
-                    memory_db.add_faction_milestone(achievement.strip(), date_str.strip())
-                    print(f"🏆 Milestone added: {achievement.strip()} | Date: {date_str.strip()}")
-
-                # WIPE ALL TAGS SO DISCORD DOESN'T SEE THEM
-                final_reply = re.sub(r"\[SAVE_LORE:.*?\]", "", ai_reply, flags=re.IGNORECASE)
-                final_reply = re.sub(r"\[MILESTONE:.*?\]", "", final_reply, flags=re.IGNORECASE).strip()
-
-                # ==========================================
-                # THE NOPING EMOJI TRIGGER
-                # ==========================================
-                # 1. Check if Jeremy decided to be funny
-                use_noping = False
-                if "[USE_NOPING]" in final_reply.upper():
-                    use_noping = True
-                
-                # 2. Wipe the tag so Discord doesn't see the text
-                final_reply = re.sub(r"\[USE_NOPING\]", "", final_reply, flags=re.IGNORECASE).strip()
-
-                # 3. Add the actual emoji to the front if triggered
+                # 4. Send the reply immediately
                 if use_noping:
-                    noping_emoji = "<:noPing:1469263150913290324>"
-                    final_reply = f"{noping_emoji} {final_reply}"
+                    jeremy_reply = f"<:noPing:1469263150913290324> {jeremy_reply}"
+                if not jeremy_reply:
+                    jeremy_reply = "*(Jeremy nods and goes back to work)*"
 
-                if not final_reply: 
-                    final_reply = "*(Jeremy nods and goes back to work)*"
-                
-                await message.channel.send(final_reply)
+                await message.channel.send(jeremy_reply)
+
+                # 5. Fire memory consolidation in the background (doesn't block the reply)
+                loop = asyncio.get_event_loop()
+                loop.run_in_executor(
+                    None,
+                    lambda: ai_engine.consolidate_and_save(speaker_name, clean_message, jeremy_reply, people_mentioned)
+                )
 
     await bot.process_commands(message)
 
