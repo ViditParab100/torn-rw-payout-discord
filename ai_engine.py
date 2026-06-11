@@ -83,7 +83,7 @@ def get_random_activity():
 def generate_ai_summary(current_war_data):
     history = memory_db.get_last_5_wars_stats()
     jeremy_raw_chats = load_jeremy_chats()
-    milestones = memory_db.get_faction_milestones()
+    milestones = memory_db.get_faction_highlights()
 
     members = current_war_data.get('members', [])
     sorted_by_rep = sorted(members, key=lambda x: x['rep_gained'], reverse=True)
@@ -147,7 +147,7 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
     """
     jeremy_style = load_jeremy_chats()
     current_activity = get_random_activity()
-    milestones = memory_db.get_faction_milestones()
+    milestones = memory_db.get_faction_highlights()
     recent_summaries = memory_db.get_recent_summaries(limit=2)
 
     # Per-player lore for everyone in this conversation

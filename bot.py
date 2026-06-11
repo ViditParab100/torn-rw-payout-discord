@@ -11,6 +11,7 @@ import asyncio
 import ai_engine
 import chart_generator
 import memory_db
+import milestone_detector
 
 # 1. Flask Keep-Alive Setup
 app = Flask('')
@@ -59,25 +60,27 @@ async def on_message(message):
                     return
 
                 try:
-                    # 1. Fetch War Data (All zeros for summary)
+                    # 1. Fetch War Data
                     war_data = main_logic.process_war_request(api_key, 0, 0, 0, 0, 0, force_update=False)
-                    
-                    # 2. Generate AI Summary
+
+                    # 2. Auto-detect milestones in background (war hits + faction API)
+                    loop = asyncio.get_event_loop()
+                    loop.run_in_executor(None, lambda: milestone_detector.detect_war_milestones(war_data))
+                    loop.run_in_executor(None, lambda: milestone_detector.detect_faction_api_milestones(api_key))
+
+                    # 3. Generate AI Summary
                     ai_summary = ai_engine.generate_ai_summary(war_data)
-                    
-                    # 3. Generate Charts
+
+                    # 4. Generate Charts
                     clean_opp_name = war_data['opponent_name'].replace(" ", "")
                     base_name = f"War_{clean_opp_name}_{war_data['war_id']}"
                     chart_paths = chart_generator.generate_war_charts(war_data, base_name)
-                    
-                    # 4. Cleanup/Fallback Logic
+
+                    # 5. Send Summary + Charts
                     final_text = ai_summary if ai_summary else "*(Jeremy wipes grease off his hands)* Stats are in, looks like a good scrap."
                     discord_files = [discord.File(path) for path in chart_paths]
-                    
-                    # 5. Send Summary + Charts in ONE message
                     await message.channel.send(content=final_text, files=discord_files)
 
-                    # Cleanup image files
                     for path in chart_paths:
                         if os.path.exists(path): os.remove(path)
 
