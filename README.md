@@ -25,11 +25,12 @@
 
 ### 🤖 CyberJeremy (Living AI Engine)
 
-CyberJeremy is powered by the **Sarvam 105B** model and acts as a persistent digital personality with living memory.
+CyberJeremy runs on **Sarvam 105B** with a Karpathy-style tiered memory system that keeps him feeling like a real person across sessions.
 
 - **Dynamic War Summaries:** Tag `@CyberJeremy scout` for an in-character 3-paragraph narrative. He identifies **Top 5 MVPs**, **Improvers** (members 20%+ above their historical average with 10+ hits), and **MIA** players (0 hits when their historical average is ≥ 5), plus references faction milestones.
-- **Associative Stealth Memory:** Jeremy extracts lore from conversation via `[SAVE_LORE: PlayerName | Fact]` tags and saves them to MongoDB. He loads relevant lore when those players are mentioned in future chats, keeping a max of 10 facts per player.
-- **Milestone Tracking:** Jeremy records faction achievements via `[MILESTONE: Achievement | Date]` tags and weaves them into war summaries.
+- **Tiered Memory:** Jeremy remembers through three layers — (1) **Working memory**: the last 7 channel messages as proper conversation turns; (2) **Episodic memory**: compressed summaries of past conversations stored in MongoDB; (3) **Semantic memory**: per-player fact files (max 10 facts, associatively loaded when someone is mentioned).
+- **Background Consolidation:** After Jeremy replies, a separate LLM call silently extracts new facts and conversation summaries — memory writes never corrupt his reply.
+- **Milestone Tracking:** Jeremy records faction achievements from conversations and weaves them into war summaries.
 - **Visual Analytics:** Generates a **Top 10 Hitter bar chart** and a **Respect Distribution pie chart** (Top 5 vs Rest) with every scout report.
 - **Custom Persona:** Built from a real chat log baseline (`Ranger Chats.txt`) — North Brampton/Caledon, mechanic/welder, Lexus GX470 enthusiast, beer drinker. Faction: *KnockOut WeightRoom* (Leader: ChineseGandalf, Co-Leader: Xtatik).
 - **Nickname Map:** 30+ player aliases are hard-coded so Jeremy refers to players naturally (e.g., "Star_vader" → Vader/Star/Champ).
@@ -86,7 +87,7 @@ Individual Pay = (Rep_Gained - Chain_Deductions) × Price_Per_Rep
 
 ### 2. The Living Memory — `memory_db.py`
 
-MongoDB database **FactionMemory** with four collections:
+MongoDB database **FactionMemory** with five collections:
 
 | Collection | Purpose |
 | :--- | :--- |
@@ -94,15 +95,18 @@ MongoDB database **FactionMemory** with four collections:
 | `wars` | Cached war data (war_id, members, opponent, scores) |
 | `lore` | Per-player fact arrays (max 10, lowercase-normalised keys) |
 | `milestones` | Faction achievements with timestamps |
+| `conversations` | Compressed episode summaries for Jeremy's episodic recall |
 
 - `get_last_5_wars_stats()` computes per-player historical averages used by the AI for Improver/MIA detection.
+- `get_recent_summaries()` returns the last N conversation summaries so Jeremy has continuity across sessions.
 
 ### 3. The AI Engine — `ai_engine.py`
 
 - Loads the last 50 lines of `Ranger Chats.txt` as Jeremy's personality baseline.
-- `generate_ai_summary()`: Pulls last 5 wars + current war + faction milestones → sends a structured prompt to Sarvam 105B → returns a 3-paragraph in-character narrative.
-- `chat_with_jeremy()`: Loads the last 7 channel messages + relevant player lore → sends a casual chat prompt → parses `[SAVE_LORE]` and `[MILESTONE]` tags from the response before replying.
-- Automatic retry on HTTP 429 rate limits; graceful fallback message if the API is unavailable.
+- `generate_ai_summary()`: Pulls last 5 wars + current war + faction milestones → sends a structured prompt to **Sarvam 105B** → returns a 3-paragraph in-character narrative.
+- `chat_with_jeremy()`: Accepts a proper `[{role, content}]` message history array + relevant player lore + episodic summaries → returns `(reply, use_noping)` with no embedded tags.
+- `consolidate_and_save()`: Fires after the Discord reply is sent (background executor). One separate Sarvam call extracts a conversation SUMMARY + any new LORE/MILESTONE facts and writes them to MongoDB — memory writes are fully decoupled from reply generation.
+- Automatic retry on rate limits; graceful fallback message if the API is unavailable.
 
 ### 4. Torn API Wrapper — `torn_api.py`
 
