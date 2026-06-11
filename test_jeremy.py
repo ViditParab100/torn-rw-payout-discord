@@ -310,6 +310,58 @@ for keyword, note in ctx_checks:
 # Cleanup mock
 memory_db.player_profiles_col.delete_one({"discord_id": mock_discord_id})
 
+# 4c: Lore archiving — add 11 facts, verify the oldest is archived
+TEST_PLAYER_ARCHIVE = "ArchiveTestPlayer_999"
+memory_db.lore_col.delete_one({"username": TEST_PLAYER_ARCHIVE.lower()})  # clean slate
+
+for i in range(11):
+    memory_db.update_player_lore(TEST_PLAYER_ARCHIVE, f"Fact number {i}")
+
+doc = memory_db.lore_col.find_one({"username": TEST_PLAYER_ARCHIVE.lower()})
+active_bits = doc.get("lore_bits", []) if doc else []
+archived_bits = doc.get("archived_lore_bits", []) if doc else []
+
+# Active should have last 10 (Facts 1-10), archived should have Fact 0
+archive_ok = "Fact number 0" in archived_bits
+active_ok = len(active_bits) == 10 and "Fact number 10" in active_bits
+
+if archive_ok:
+    ok("[lore archive] displaced fact stored in archived_lore_bits")
+    passed += 1
+else:
+    fail(f"[lore archive] 'Fact number 0' not in archived: {archived_bits[:3]}")
+    failed += 1
+
+if active_ok:
+    ok("[lore archive] active lore_bits capped at 10 with newest fact present")
+    passed += 1
+else:
+    fail(f"[lore archive] active bits={len(active_bits)}, expected 10: {active_bits[:3]}")
+    failed += 1
+
+memory_db.lore_col.delete_one({"username": TEST_PLAYER_ARCHIVE.lower()})
+
+# 4d: Gender dict loaded correctly
+import ai_engine
+known_female = ["KuroKrysel", "Helena05", "Rockless"]
+known_male   = ["Star_vader", "ChineseGandalf", "RockStarDad", "FlipJames", "JNRanger"]
+
+for name in known_female:
+    if ai_engine.PLAYER_GENDERS.get(name) == "Female":
+        ok(f"[gender seed] {name} = Female")
+        passed += 1
+    else:
+        fail(f"[gender seed] {name} expected Female, got {ai_engine.PLAYER_GENDERS.get(name)}")
+        failed += 1
+
+for name in known_male:
+    if ai_engine.PLAYER_GENDERS.get(name) == "Male":
+        ok(f"[gender seed] {name} = Male")
+        passed += 1
+    else:
+        fail(f"[gender seed] {name} expected Male, got {ai_engine.PLAYER_GENDERS.get(name)}")
+        failed += 1
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SUMMARY

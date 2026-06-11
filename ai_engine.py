@@ -8,6 +8,58 @@ SARVAM_KEY = os.environ.get("SARVAM_API_KEY")
 client = SarvamAI(api_subscription_key=SARVAM_KEY)
 MODEL_NAME = "sarvam-105b"
 
+# --- GENDER DATABASE ---
+# Values: "Male" | "Female" | "Enby" | None (unknown — fetch from Torn API via /update_intel)
+# M=he/him, F=she/her, Enby or unknown=they/them
+PLAYER_GENDERS = {
+    "Star_vader":        "Male",
+    "Spidernnam":        "Male",
+    "FlipJames":         "Male",
+    "ChineseGandalf":    "Male",
+    "Xtatik":            None,
+    "RockStarDad":       "Male",
+    "Kaemani":           None,
+    "Aberwarum":         None,
+    "Helena05":          "Female",
+    "Rockless":          "Female",
+    "KuroKrysel":        "Female",
+    "DaEpicGamer":       None,
+    "Rehsirap":          "Male",
+    "Xirken":            None,
+    "Profu":             None,
+    "BulletToothKep":    "Male",
+    "KisUziVertikal":    "Male",
+    "vmurda":            None,
+    "YoungDN":           "Male",
+    "_Andrew_":          "Male",
+    "Drago3636":         "Male",
+    "Craig_Demon":       "Male",
+    "Venomjr":           "Male",
+    "Dizzaster007":      None,
+    "luriorealacc":      None,
+    "PetrifiedSlug":     None,
+    "DontBustMyBalls":   "Male",
+    "Mythkiller":        "Male",
+    "MarmotMenace":      None,
+    "JNRanger":          "Male",
+}
+
+
+def load_genders_from_db():
+    """
+    Merges MongoDB faction_members gender data into the in-memory PLAYER_GENDERS dict.
+    Call at bot startup after MongoDB is available. Never raises.
+    """
+    try:
+        db_genders = memory_db.get_all_genders()
+        for name, gender in db_genders.items():
+            if gender:
+                PLAYER_GENDERS[name] = gender
+        print(f"[AI] Loaded {len(db_genders)} genders from DB into PLAYER_GENDERS.")
+    except Exception as e:
+        print(f"[AI] load_genders_from_db: {e}")
+
+
 # --- NICKNAME DATABASE ---
 NICKNAMES = {
     "Star_vader": ["Vader", "Star", "Champ"],
@@ -237,6 +289,14 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
     # Compact nickname reference
     nick_ref = ", ".join(f"{k}={'/'.join(v)}" for k, v in NICKNAMES.items())
 
+    # Compact gender/pronoun reference (only known genders)
+    _pronoun = {"Male": "he/him", "Female": "she/her", "Enby": "they/them"}
+    gender_ref = ", ".join(
+        f"{name}={_pronoun.get(g, 'they/them')}"
+        for name, g in PLAYER_GENDERS.items()
+        if g is not None
+    )
+
     system_prompt = f"""{JEREMY_CORE}
 
 RIGHT NOW: {current_activity}
@@ -258,8 +318,9 @@ PERIOD SUMMARY: {period_line}
 {episode_context}
 
 NICKNAME QUICK-REF: {nick_ref}
+PRONOUNS: {gender_ref}
 
-IMPORTANT: When asked about wars, recent history, records, or how the faction is doing — answer from the WAR HISTORY and PERIOD SUMMARY above. Be specific: name opponents, results, dates. Use nicknames for players."""
+IMPORTANT: When asked about wars, recent history, records, or how the faction is doing — answer from the WAR HISTORY and PERIOD SUMMARY above. Be specific: name opponents, results, dates. Use nicknames and correct pronouns for players."""
 
     # System message first, then history turns, then current message
     messages = [{"role": "system", "content": system_prompt}]

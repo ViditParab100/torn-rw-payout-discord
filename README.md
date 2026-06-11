@@ -30,12 +30,14 @@ CyberJeremy runs on **Sarvam 105B** with a Karpathy-style tiered memory system t
 - **Dynamic War Summaries:** Tag `@CyberJeremy scout` for an in-character 3-paragraph narrative. He identifies **Top 5 MVPs**, **Improvers** (members 20%+ above their historical average with 10+ hits), and **MIA** players (0 hits when their historical average is ≥ 5), plus references faction milestones.
 - **Tiered Memory:** Jeremy remembers through four layers — (1) **Working memory**: the last 7 channel messages as proper conversation turns; (2) **Episodic memory**: compressed summaries of past conversations stored in MongoDB; (3) **Semantic memory**: per-player fact files (max 10 facts, associatively loaded when someone is mentioned); (4) **Faction memory**: milestones, chain records, war history, and upgrade timestamps.
 - **Semantic Lore Search (ChromaDB):** A vector index (all-MiniLM-L6-v2) lets Jeremy answer directional questions like "who leads KOWR" or "who was our mechanic" — even when phrased differently. The index is rebuilt from MongoDB at startup, with hard-coded static facts for key roles (ChineseGandalf as leader, Xtatik as co-leader, etc).
-- **Live Torn Profile Enrichment:** When a player with a stored API key messages Jeremy, their Torn profile is fetched in the background — level, title, donator status, faction position, company info (name, type, stars, age, employee count). This data is cached for 1 hour in MongoDB and injected into Jeremy's context. Jeremy also detects title promotions and logs them as faction milestones.
+- **Live Torn Profile Enrichment:** When a player with a stored API key messages Jeremy, their Torn profile is fetched in the background — level, title, donator status, faction position, company info (name, type, stars, age, employee count, role). Cached for 1 hour in MongoDB. When a player asks directly about their own data ("what level am I?", "how many employees does my company have?"), Jeremy fetches fresh data synchronously before replying. Title promotions are auto-detected and stored as milestones.
+- **Gender & Pronouns:** Every player in the nickname list has a gender entry — seeded from known context, completed via `/update_intel` which batch-fetches all current faction members' profiles from Torn. Jeremy uses correct he/him, she/her, or they/them pronouns automatically.
 - **Battle Intelligence:** Jeremy can reference FFScouter battle stats in natural chat when relevant keywords appear (e.g., "can we beat them", "how strong is their faction"). Cached data from the last `/battle_intel` run is injected directly into his context window — no extra API call needed during chat.
+- **Versioned Memory:** Old lore facts are never silently lost. When the active fact buffer (10 facts) fills up, displaced facts are archived to `archived_lore_bits` in MongoDB — keeping a full history of what Jeremy once knew about each player.
 - **Background Consolidation:** After Jeremy replies, a separate LLM call silently extracts new facts and conversation summaries — memory writes never corrupt his reply.
 - **Milestone Tracking:** Jeremy records faction achievements from conversations and weaves them into war summaries. Chain milestones (first 100/250/500/1000/2000/2500-hit chains), faction upgrade timestamps, and war records are all tracked automatically.
 - **Visual Analytics:** Generates a **Top 10 Hitter bar chart** and a **Respect Distribution pie chart** (Top 5 vs Rest) with every scout report.
-- **Custom Persona:** Built from a real chat log baseline (`Ranger Chats.txt`) — North Brampton/Caledon, mechanic/welder, Lexus GX470 enthusiast, beer drinker. Faction: *KnockOut WeightRoom* (Leader: ChineseGandalf, Co-Leader: Xtatik). Jeremy always refers to himself as "Jeremy" or "CyberJeremy" — never shortforms.
+- **Custom Persona:** Built from a real chat log baseline (`Ranger Chats.txt`) — North Brampton/Caledon, mechanic/welder by real-life trade, Lexus GX470 enthusiast, beer drinker. Faction: *KnockOut WeightRoom* (Leader: ChineseGandalf, Co-Leader: Xtatik). Jeremy always refers to himself as "Jeremy" or "CyberJeremy" — never shortforms.
 - **Nickname Map:** 30+ player aliases are hard-coded so Jeremy refers to players naturally (e.g., "Star_vader" → Vader/Star/Champ).
 - **Curious Side:** Roughly 1 in 3 replies, Jeremy ends with a single personal question — game stats, IRL stuff, weekend plans. Never pushy.
 
@@ -47,9 +49,10 @@ CyberJeremy runs on **Sarvam 105B** with a Karpathy-style tiered memory system t
 
 | Command | Parameters | Description |
 | :--- | :--- | :--- |
-| `/set_key` | `api_key` | Securely stores your Torn public API key in the MongoDB vault (ephemeral — only you see the response). Required for `/payout`, `/battle_intel`, and player profile enrichment. |
+| `/set_key` | `api_key` | Securely stores your Torn public API key in the MongoDB vault (ephemeral — only you see the response). Required for `/payout`, `/battle_intel`, `/update_intel`, and player profile enrichment. |
 | `/payout` | `total_payout`, `medical_cost`, `api_key` *(optional)*, `pay_per_assist`, `outside_hit_val`, `outside_hit_limit` | Runs the full payout engine and posts Excel + PDF files. Uses your vault key if `api_key` is omitted. |
 | `/battle_intel` | `enemy_faction_id` *(optional)* | Pulls FFScouter battle stats for both factions. Defaults to the last war's opponent. Jeremy gives a bro-style verdict plus a formatted stat comparison table. |
+| `/update_intel` | *(none)* | Batch-fetches all current faction members' Torn profiles (gender, level, title, Torn ID). Updates the in-memory gender dict and MongoDB `faction_members` collection. Run once after new members join. |
 
 ### Message Mentions
 
@@ -103,7 +106,8 @@ MongoDB database **FactionMemory** with seven collections:
 | `milestones` | Faction achievements with timestamps and structured types |
 | `conversations` | Compressed episode summaries for Jeremy's episodic recall |
 | `faction_stats` | FFScouter battle stat cache keyed by faction ID |
-| `player_profiles` | Torn profile cache keyed by Discord ID (1-hour TTL) |
+| `player_profiles` | Torn profile cache keyed by Discord ID (1-hour TTL); includes gender, torn_id |
+| `faction_members` | All faction member records — torn_id, torn_name, gender, level, title. Populated by `/update_intel`. |
 
 - `get_last_5_wars_stats()` computes per-player historical averages used by the AI for Improver/MIA detection.
 - `get_recent_summaries()` returns the last N conversation summaries so Jeremy has continuity across sessions.
@@ -132,10 +136,12 @@ ChromaDB in-memory vector index for answering "who is X / who leads Y / who has 
 
 Torn API profile enrichment using each player's own stored key:
 
-- **v1 profile:** level, title, rank, age (days), donator status, faction position, job/company name
+- **v1 profile:** level, title, rank, age (days), donator status, gender, faction position, job/company name, torn_id
 - **v2 /company:** detailed company profile — type, stars (rating), days old, employee count, director name
 - **Caching:** profiles stored in MongoDB `player_profiles_col` with 1-hour TTL. `get_player_context()` returns empty string if stale.
-- **Title promotion detection:** compares new title against stored title using a progression list. Promotions fire a lore update and a faction milestone.
+- **On-demand fetch:** when a player asks about their own profile data in chat, `enrich_player()` runs synchronously before Jeremy replies — ensuring fresh data.
+- **Bulk gender fetch:** `fetch_faction_genders(api_key)` retrieves all current faction members via `/v2/faction?selections=members`, then fetches each member's v1 profile to extract gender, level, title, and torn_id. Stores in `faction_members_col`. Rate: ~0.7s/member.
+- **Title promotion detection:** compares new title against stored title using a 40-entry progression list. Promotions fire a lore update and a faction milestone.
 - **Auto-lore:** title + company facts are automatically written to the lore layer after each profile fetch.
 - Profile enrichment runs in a background thread after every Route B chat message (no blocking).
 
@@ -250,7 +256,7 @@ python test_jeremy.py --chat   # All layers including live Sarvam calls (~60s)
 | 1 — Semantic search | 16 | Direct `lore_db.search_who()` queries. Checks expected player appears in top N results. |
 | 2 — Meaning equivalence | 4 | Two different phrasings of the same question must surface the same player. |
 | 3 — Generative chat | 9 | Live Sarvam calls with keyword checks on Jeremy's reply. Includes identity test (Jeremy never uses shortforms). |
-| 4 — Player intel | 12 | Title tier progression logic + context string formatting with mock profile data. |
+| 4 — Player intel | 22 | Title tier logic, context formatting, lore archive verification, and gender seed checks. |
 
 ---
 
@@ -272,7 +278,7 @@ torn-rw-payout-discord/
 ├── pdf_convertor.py     # fpdf2 PDF report (landscape)                                 ← DO NOT MODIFY
 ├── seed_db.py           # Historical war data backfill utility                          ← DO NOT MODIFY
 ├── seed_milestones.py   # One-time chain + upgrade milestone seeder
-├── test_jeremy.py       # 4-layer CyberJeremy test suite (32 tests)
+├── test_jeremy.py       # 4-layer CyberJeremy test suite (42 tests)
 ├── Ranger Chats.txt     # Jeremy's personality baseline (last 50 lines loaded)
 ├── Sad_Chats.txt        # Archive of memorial/sad messages
 ├── requirements.txt     # Python dependencies

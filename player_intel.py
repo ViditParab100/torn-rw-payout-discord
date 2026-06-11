@@ -81,6 +81,91 @@ def fetch_company(api_key, company_id=None):
         return None
 
 
+def fetch_player_by_id(torn_id, api_key):
+    """
+    Fetch a specific player's public profile using any available API key.
+    Returns the raw v1 profile dict, or None on error.
+    Useful for looking up level/title/gender of any player by their Torn ID.
+    """
+    try:
+        r = requests.get(
+            f"{TORN_V1}/user/{torn_id}",
+            params={"selections": "profile", "key": api_key},
+            timeout=8
+        )
+        data = r.json()
+        if "error" in data:
+            print(f"[PlayerIntel] fetch_player_by_id({torn_id}) error: {data['error']}")
+            return None
+        return data
+    except Exception as e:
+        print(f"[PlayerIntel] fetch_player_by_id({torn_id}): {e}")
+        return None
+
+
+def fetch_faction_genders(api_key):
+    """
+    Bulk-fetch genders for all current faction members.
+    1. Gets member list via /v2/faction?selections=members
+    2. For each member, fetches v1 profile (gender, level, title)
+    3. Stores results in MongoDB faction_members_col
+
+    Runs synchronously — call from a background executor for non-blocking use.
+    Rate: ~1 profile/sec, safe under Torn's default limit.
+    Returns count of members processed.
+    """
+    import time as _time
+
+    # Step 1: Get faction member list
+    try:
+        r = requests.get(
+            f"{TORN_V2}/faction",
+            params={"key": api_key, "selections": "members"},
+            timeout=10
+        )
+        data = r.json()
+        members_raw = data.get("members", [])
+        if isinstance(members_raw, dict):
+            members_raw = list(members_raw.values())
+        if not members_raw:
+            print("[PlayerIntel] fetch_faction_genders: no members returned")
+            return 0
+    except Exception as e:
+        print(f"[PlayerIntel] fetch_faction_genders member list error: {e}")
+        return 0
+
+    count = 0
+    for member in members_raw:
+        torn_id = member.get("id")
+        torn_name = member.get("name", str(torn_id))
+        if not torn_id:
+            continue
+
+        profile = fetch_player_by_id(torn_id, api_key)
+        gender = profile.get("gender") if profile else None
+        level = profile.get("level") if profile else None
+        title = profile.get("title") if profile else None
+
+        memory_db.save_faction_member(torn_id, torn_name, gender=gender, extra={
+            "level": level,
+            "title": title,
+        })
+
+        # Update in-memory gender dict if ai_engine is loaded
+        if gender:
+            try:
+                import ai_engine as _ae
+                _ae.PLAYER_GENDERS[torn_name] = gender
+            except Exception:
+                pass
+
+        count += 1
+        _time.sleep(0.7)  # stay safely under Torn rate limit
+
+    print(f"[PlayerIntel] fetch_faction_genders: processed {count} members")
+    return count
+
+
 def enrich_player(api_key, discord_id, display_name):
     """
     Fetch Torn profile + company data for this player, cache in MongoDB,
@@ -93,11 +178,13 @@ def enrich_player(api_key, discord_id, display_name):
             return
 
         name = profile.get("name") or display_name
+        torn_id = profile.get("player_id")
         level = profile.get("level")
         title = profile.get("title")
         rank = profile.get("rank")
         age_days = profile.get("age")
         donator = profile.get("donator")
+        gender = profile.get("gender")
         status_obj = profile.get("status") or {}
         status = status_obj.get("state", "Okay") if isinstance(status_obj, dict) else str(status_obj)
         faction_obj = profile.get("faction") or {}
@@ -134,12 +221,14 @@ def enrich_player(api_key, discord_id, display_name):
         # Save updated cache
         memory_db.save_player_profile(str(discord_id), {
             "discord_id": str(discord_id),
+            "torn_id": torn_id,
             "torn_name": name,
             "level": level,
             "title": title,
             "rank": rank,
             "age_days": age_days,
             "donator": donator,
+            "gender": gender,
             "status": status,
             "faction_position": faction_pos,
             "company_id": company_id,
@@ -148,6 +237,20 @@ def enrich_player(api_key, discord_id, display_name):
             "company": company_data,
             "fetched_at": datetime.now(),
         })
+
+        # Register in faction_members for gender + torn_id lookups
+        if torn_id:
+            memory_db.save_faction_member(torn_id, name, gender=gender, extra={
+                "level": level, "title": title
+            })
+
+        # Update in-memory gender dict
+        if gender:
+            try:
+                import ai_engine as _ae
+                _ae.PLAYER_GENDERS[name] = gender
+            except Exception:
+                pass
 
         # Auto-lore: title fact
         if title and level:
@@ -206,9 +309,12 @@ def get_player_context(discord_id):
     donator = profile.get("donator")
     age_days = profile.get("age_days")
     faction_pos = profile.get("faction_position")
+    gender = profile.get("gender")
 
     if level:
         parts.append(f"Level {level}" + (f" ({title})" if title else ""))
+    if gender:
+        parts.append(f"Gender: {gender}")
     if status and status.lower() not in ("okay", "ok"):
         parts.append(f"Status: {status}")
     if donator:
