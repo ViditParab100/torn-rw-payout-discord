@@ -1,14 +1,12 @@
 import os
 import random
 import time
-from anthropic import Anthropic
+from sarvamai import SarvamAI
 import memory_db
 
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
-client = Anthropic(api_key=ANTHROPIC_KEY)
-
-CHAT_MODEL = "claude-haiku-4-5"
-SUMMARY_MODEL = "claude-opus-4-8"
+SARVAM_KEY = os.environ.get("SARVAM_API_KEY")
+client = SarvamAI(api_subscription_key=SARVAM_KEY)
+MODEL_NAME = "sarvam-105b"
 
 # --- NICKNAME DATABASE ---
 NICKNAMES = {
@@ -104,7 +102,7 @@ def generate_ai_summary(current_war_data):
 
     improvers, mias = improvers[:3], mias[:5]
 
-    system_prompt = f"""You are CyberJeremy, a digital ghost of a KnockOut WeightRoom faction member.
+    system_prompt = f"""{JEREMY_CORE}
 
 Speaking style — write in this voice:
 {jeremy_raw_chats}
@@ -121,15 +119,17 @@ Write a war summary in Jeremy's voice. 3 paragraphs max. Praise the MVP, shoutou
 
     for attempt in range(3):
         try:
-            response = client.messages.create(
-                model=SUMMARY_MODEL,
-                max_tokens=600,
-                system=system_prompt,
-                messages=[{"role": "user", "content": data_payload}]
+            response = client.chat.completions(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": data_payload}
+                ],
+                temperature=0.85
             )
-            return response.content[0].text
+            return response.choices[0].message.content
         except Exception as e:
-            if "429" in str(e) or "overloaded" in str(e).lower():
+            if "429" in str(e):
                 time.sleep(5)
                 continue
             return "*(glitches)* Comms dropped. What were we sayin'?"
@@ -165,7 +165,7 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
     # Compact nickname reference
     nick_ref = ", ".join(f"{k}={'/'.join(v)}" for k, v in NICKNAMES.items())
 
-    system = f"""{JEREMY_CORE}
+    system_prompt = f"""{JEREMY_CORE}
 
 RIGHT NOW: {current_activity}
 
@@ -182,28 +182,26 @@ FACTION HIGHLIGHTS:
 
 NICKNAME QUICK-REF: {nick_ref}"""
 
-    messages = list(message_history)
+    # System message first, then history turns, then current message
+    messages = [{"role": "system", "content": system_prompt}]
+    messages += list(message_history)
     messages.append({"role": "user", "content": f"{user_name}: {user_message}"})
 
-    for attempt in range(3):
-        try:
-            response = client.messages.create(
-                model=CHAT_MODEL,
-                max_tokens=300,
-                system=system,
-                messages=messages
-            )
-            raw_reply = response.content[0].text
+    try:
+        response = client.chat.completions(
+            model=MODEL_NAME,
+            messages=messages,
+            temperature=0.85
+        )
+        raw_reply = response.choices[0].message.content
 
-            use_noping = raw_reply.startswith("[NOPING]")
-            clean_reply = raw_reply.replace("[NOPING]", "").strip()
+        use_noping = raw_reply.startswith("[NOPING]")
+        clean_reply = raw_reply.replace("[NOPING]", "").strip()
 
-            return clean_reply, use_noping
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(5)
-            else:
-                return "*(wiping grease)* Signal just cut out. Say that again?", False
+        return clean_reply, use_noping
+    except Exception as e:
+        print(f"SARVAM ERROR: {e}")
+        return "*(wiping grease)* Signal just cut out. Say that again?", False
 
 
 # ==========================================
@@ -236,12 +234,12 @@ MILESTONE: Faction achievement description | Date mentioned (or "none")
 Rules: max 1 SUMMARY, 2 LORE, 1 MILESTONE. Skip LORE/MILESTONE if nothing new. Never repeat known facts."""
 
     try:
-        response = client.messages.create(
-            model=CHAT_MODEL,
-            max_tokens=120,
-            messages=[{"role": "user", "content": prompt}]
+        response = client.chat.completions(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
         )
-        text = response.content[0].text.strip()
+        text = response.choices[0].message.content.strip()
 
         for line in text.split("\n"):
             line = line.strip()

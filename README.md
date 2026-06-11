@@ -3,7 +3,7 @@
 ![Status](https://img.shields.io/badge/status-active-success?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/platform-discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)
 ![API](https://img.shields.io/badge/torn-v2_api-0ea5e9?style=for-the-badge)
-![AI](https://img.shields.io/badge/AI-Claude_Haiku_%2F_Opus-FF9900?style=for-the-badge&logo=anthropic)
+![AI](https://img.shields.io/badge/AI-Sarvam_105B-FF9900?style=for-the-badge)
 ![DB](https://img.shields.io/badge/Database-MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
 
 > [!TIP]
@@ -25,7 +25,7 @@
 
 ### 🤖 CyberJeremy (Living AI Engine)
 
-CyberJeremy runs on **Claude Haiku 4.5** (chat) and **Claude Opus 4.8** (war summaries) — a tiered memory system keeps him feeling like a real person.
+CyberJeremy runs on **Sarvam 105B** with a Karpathy-style tiered memory system that keeps him feeling like a real person across sessions.
 
 - **Dynamic War Summaries:** Tag `@CyberJeremy scout` for an in-character 3-paragraph narrative. He identifies **Top 5 MVPs**, **Improvers** (members 20%+ above their historical average with 10+ hits), and **MIA** players (0 hits when their historical average is ≥ 5), plus references faction milestones.
 - **Tiered Memory:** Jeremy remembers through three layers — (1) **Working memory**: the last 7 channel messages as proper conversation turns; (2) **Episodic memory**: compressed summaries of past conversations stored in MongoDB; (3) **Semantic memory**: per-player fact files (max 10 facts, associatively loaded when someone is mentioned).
@@ -103,9 +103,9 @@ MongoDB database **FactionMemory** with five collections:
 ### 3. The AI Engine — `ai_engine.py`
 
 - Loads the last 50 lines of `Ranger Chats.txt` as Jeremy's personality baseline.
-- `generate_ai_summary()`: Pulls last 5 wars + current war + faction milestones → sends a structured prompt to **Claude Opus 4.8** → returns a 3-paragraph in-character narrative.
-- `chat_with_jeremy()`: Accepts a proper `[{role, content}]` message history array + relevant player lore + episodic summaries → calls **Claude Haiku 4.5** → returns `(reply, use_noping)` with no embedded tags.
-- `consolidate_and_save()`: Fires after the Discord reply is sent (background executor). One Haiku call extracts a conversation SUMMARY + any new LORE/MILESTONE facts and writes them to MongoDB — memory writes are decoupled from reply generation.
+- `generate_ai_summary()`: Pulls last 5 wars + current war + faction milestones → sends a structured prompt to **Sarvam 105B** → returns a 3-paragraph in-character narrative.
+- `chat_with_jeremy()`: Accepts a proper `[{role, content}]` message history array + relevant player lore + episodic summaries → returns `(reply, use_noping)` with no embedded tags.
+- `consolidate_and_save()`: Fires after the Discord reply is sent (background executor). One separate Sarvam call extracts a conversation SUMMARY + any new LORE/MILESTONE facts and writes them to MongoDB — memory writes are fully decoupled from reply generation.
 - Automatic retry on rate limits; graceful fallback message if the API is unavailable.
 
 ### 4. Torn API Wrapper — `torn_api.py`
@@ -145,7 +145,7 @@ Excel uses lime green (#92D050) headers with currency formatting. PDF is A4 land
 
 1. **Discord Bot Token** — Message Content Intent and application commands enabled.
 2. **MongoDB Atlas URI** — Any free-tier cluster works.
-3. **Anthropic API Key** — Powers both Jeremy's chat (Haiku 4.5) and war summaries (Opus 4.8).
+3. **Sarvam AI API Key** — For the 105B conversational brain.
 4. **Python 3.10+**
 
 ### Environment Variables
@@ -153,7 +153,7 @@ Excel uses lime green (#92D050) headers with currency formatting. PDF is A4 land
 ```env
 DISCORD_TOKEN=your_discord_bot_token
 MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/?retryWrites=true&w=majority
-ANTHROPIC_API_KEY=your_anthropic_api_key
+SARVAM_API_KEY=your_sarvam_api_key
 ```
 
 ### Installation & Run
@@ -218,6 +218,6 @@ torn-rw-payout-discord/
 | `fpdf2` | PDF report generation |
 | `matplotlib` | Chart visualizations |
 | `pymongo` + `certifi` | MongoDB Atlas driver with SSL |
-| `anthropic` | Claude API client (Haiku 4.5 chat + Opus 4.8 war summaries) |
+| `sarvamai` | Sarvam 105B AI client |
 | `flask` | Keep-alive server for Heroku |
 | `openpyxl` | Excel utilities |
