@@ -196,10 +196,13 @@ Write a war summary in Jeremy's voice. 3 paragraphs max. Praise the MVP, shoutou
 # ==========================================
 # NATURAL CHAT GENERATOR
 # ==========================================
-def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=None, player_context=None):
+def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=None,
+                     player_context=None, extra_context=None):
     """
     message_history: list of {"role": "user"/"assistant", "content": str}
     player_context: optional string from player_intel.get_player_context() for the speaker
+    extra_context: list of strings freshly fetched for this specific request (live API data).
+                   Takes priority in the prompt over all cached data.
     Returns: (clean_reply: str, use_noping: bool)
     """
     jeremy_style = load_jeremy_chats()
@@ -237,13 +240,14 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
     if player_context:
         lore_lines.append(f"LIVE TORN DATA:\n{player_context}")
 
-    # FFScouter keyword detection — inject cached battle comparison when relevant
+    # Inject cached FFScouter comparison only when live data hasn't already been provided
+    has_live_ff = extra_context and any("FFSCOUTER" in c.upper() or "BATTLE INTEL" in c.upper() for c in extra_context)
     battle_keywords = [
         "battle stats", "bs estimate", "can we beat", "how strong", "enemy stats",
         "ffscouter", "ff scouter", "war stats", "outgun", "outclass",
         "stronger than", "fight them", "match up", "matchup", "their strength"
     ]
-    if any(kw in lower_msg for kw in battle_keywords):
+    if not has_live_ff and any(kw in lower_msg for kw in battle_keywords):
         try:
             last_war = memory_db.wars_collection.find_one(sort=[("war_id", -1)])
             if last_war:
@@ -297,11 +301,17 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
         if g is not None
     )
 
+    # Fresh live data fetched specifically for this request — highest priority
+    fresh_section = ""
+    if extra_context:
+        fresh_section = "FRESH LIVE DATA (just fetched — use this over anything cached below):\n" + \
+                        "\n\n".join(extra_context) + "\n"
+
     system_prompt = f"""{JEREMY_CORE}
 
 RIGHT NOW: {current_activity}
 
-VOICE SAMPLE (match this style):
+{fresh_section}VOICE SAMPLE (match this style):
 {jeremy_style}
 
 PLAYER FILES:

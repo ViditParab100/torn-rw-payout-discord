@@ -58,9 +58,11 @@ CyberJeremy runs on **Sarvam 105B** with a Karpathy-style tiered memory system t
 
 | Trigger | Description |
 | :--- | :--- |
-| `@CyberJeremy scout` | Fetches the latest war, generates two Matplotlib charts, and posts an AI-written narrative summary. |
-| `@CyberJeremy [anything]` | Natural chat. Jeremy loads lore for any mentioned players, may do a semantic "who is X" lookup, checks your cached Torn profile for context, and replies in 1–3 casual sentences. Memory consolidation fires in the background after the reply. |
-| `@CyberJeremy can we beat [faction]` | Triggers battle stats context — Jeremy references the last cached FFScouter comparison in his reply. Use `/battle_intel` to refresh the cache. |
+| `@CyberJeremy scout` | Fetches the latest war, generates two Matplotlib charts, and posts an AI-written narrative summary. Also triggered by "war report" or "war summary". |
+| `@CyberJeremy [anything]` | Natural chat. Jeremy loads lore for any mentioned players, does a semantic "who is X" lookup when needed, checks your cached Torn profile for context, and replies in 1–3 casual sentences. Memory consolidation fires in the background after the reply. |
+| `@CyberJeremy can we beat them` / `battle stats` / `ff data` | Triggers a live FFScouter fetch for both factions in parallel — Jeremy replies with the faction comparison table and a brief tactical take. |
+| `@CyberJeremy stat difference` / `who to hit` / `matchup` | Triggers a live FFScouter fetch **plus** the per-player matchup report — Jeremy breaks down sweet-spot targets, who can run free, and which enemy players are threats. |
+| `@CyberJeremy what level is [player]` / `how strong is [player]` | Looks up any faction member's live Torn profile by name — level, title, status, age — and feeds it directly into Jeremy's reply. |
 
 ---
 
@@ -127,7 +129,7 @@ MongoDB database **FactionMemory** with seven collections:
 ChromaDB in-memory vector index for answering "who is X / who leads Y / who has Z" questions:
 
 - **Embedding model:** `all-MiniLM-L6-v2` ONNX (79MB, cached at `~/.cache/chroma/onnx_models/`). Cosine similarity space.
-- **Static facts:** Hard-coded entries for key roles (ChineseGandalf=leader, Xtatik=co-leader, JNRanger=mechanic, Stumptronic=sister faction leader, Star_vader=creator, Spidernnam=departed) with multiple phrasings per role to defeat embedding variance.
+- **Static facts:** Hard-coded entries for key roles (ChineseGandalf=leader, Xtatik=co-leader, JNRanger=mechanic/welder by real-life trade, Stumptronic=sister faction leader, Star_vader=creator, Spidernnam=departed to reviver faction) with multiple phrasings per role to defeat embedding variance.
 - **Rebuilt at startup** from MongoDB `lore` collection. EphemeralClient means no disk state — MongoDB is always the source of truth.
 - `search_who(query, n_results, distance_threshold)` — triggered in `chat_with_jeremy()` whenever the message contains "who is / who leads / who runs / who left / which player" etc.
 - New lore facts added via `memory_db.update_player_lore()` are automatically mirrored into ChromaDB via lazy import.
@@ -151,8 +153,10 @@ FFScouter integration for war preparation:
 
 - `get_stats(player_ids)`: Batch query `ffscouter.com/api/v1/get-stats` — up to 205 IDs per request, 3s sleep between chunks to stay under 20 req/min. Returns `bs_estimate`, `bs_estimate_human`, `fair_fight`.
 - `scout_faction(api_key, faction_id)`: Full pipeline — Torn member list → FFScouter stats → enriched summary dict. Cached in MongoDB `faction_stats_col`.
-- `compare_factions(our_data, their_data)`: Builds a structured comparison table with verdict (WE OUTCLASS / EVEN MATCHUP / THEY OUTGUN US), average BS, total BS, top fighters, and threat list.
-- **Natural chat integration:** when battle keywords appear in chat ("can we beat", "how strong", "outgun", etc.), `chat_with_jeremy()` auto-injects the last cached comparison into the system prompt.
+- `compare_factions(our_data, their_data)`: Faction-level summary table — verdict (WE OUTCLASS / EVEN MATCHUP / THEY OUTGUN US), average BS, total BS, top fighters, and threats (their players > 1.5x our avg).
+- `player_matchup_report(our_data, their_data)`: Per-player tactical breakdown based on Torn's battle mechanics — **sweet spot** (0.8–1.1x ratio = max respect), **win zone** (≥1.2x = dominates), **threats** (their players exceeding 1.2x our average). Lists up to 8 sweet-spot matchup pairs, players who can beat 50%+ of the enemy roster, and incoming threats.
+- **Route B live fetch:** When matchup or FFScouter keywords appear in chat ("stat difference", "who to hit", "matchup", "battle stats", etc.), Jeremy fetches both factions from FFScouter in parallel using `asyncio.gather()` and injects the results as `FRESH LIVE DATA` at the top of his context window — overriding any stale cache.
+- **Natural chat fallback:** when battle keywords appear but no live fetch runs, `chat_with_jeremy()` injects the last cached comparison from MongoDB automatically.
 
 ### 7. Torn API Wrapper — `torn_api.py`
 
@@ -244,10 +248,10 @@ This is a one-time operation — the detector is idempotent and skips already-st
 
 ## 🧪 Test Suite — `test_jeremy.py`
 
-Four-layer test suite for the CyberJeremy AI:
+Five-layer test suite for the CyberJeremy AI:
 
 ```bash
-python test_jeremy.py          # Layers 1, 2, 4 (fast, ~20s)
+python test_jeremy.py          # Layers 1, 2, 4, 5 (fast, ~25s)
 python test_jeremy.py --chat   # All layers including live Sarvam calls (~60s)
 ```
 
@@ -255,8 +259,9 @@ python test_jeremy.py --chat   # All layers including live Sarvam calls (~60s)
 | :--- | :--- | :--- |
 | 1 — Semantic search | 16 | Direct `lore_db.search_who()` queries. Checks expected player appears in top N results. |
 | 2 — Meaning equivalence | 4 | Two different phrasings of the same question must surface the same player. |
-| 3 — Generative chat | 9 | Live Sarvam calls with keyword checks on Jeremy's reply. Includes identity test (Jeremy never uses shortforms). |
+| 3 — Generative chat | 10 | Live Sarvam calls with keyword checks on Jeremy's reply. Includes identity test and a stat-difference matchup query. |
 | 4 — Player intel | 22 | Title tier logic, context formatting, lore archive verification, and gender seed checks. |
+| 5 — FFScouter matchup | 15 | Pure unit tests for `player_matchup_report()` — sweet-spot detection, win-zone classification, threat flagging, boundary precision (0.80/1.10/0.79/1.21), string-keyed cache format, and null-input guards. |
 
 ---
 
@@ -278,7 +283,7 @@ torn-rw-payout-discord/
 ├── pdf_convertor.py     # fpdf2 PDF report (landscape)                                 ← DO NOT MODIFY
 ├── seed_db.py           # Historical war data backfill utility                          ← DO NOT MODIFY
 ├── seed_milestones.py   # One-time chain + upgrade milestone seeder
-├── test_jeremy.py       # 4-layer CyberJeremy test suite (42 tests)
+├── test_jeremy.py       # 5-layer CyberJeremy test suite (57 tests)
 ├── Ranger Chats.txt     # Jeremy's personality baseline (last 50 lines loaded)
 ├── Sad_Chats.txt        # Archive of memorial/sad messages
 ├── requirements.txt     # Python dependencies

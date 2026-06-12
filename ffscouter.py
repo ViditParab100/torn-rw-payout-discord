@@ -166,6 +166,121 @@ def scout_faction(torn_api_key, faction_id=None, faction_name=None):
     return result
 
 
+def player_matchup_report(our_data, their_data):
+    """
+    Per-player tactical matchup breakdown.
+
+    Battle mechanics (Torn):
+      - Win zone   : attacker_bs >= 1.2 * defender_bs  (you dominate)
+      - Sweet spot : 0.8 <= defender_bs / attacker_bs <= 1.1  (max respect)
+      - Risky      : defender_bs > attacker_bs * 1.2  (you're outgunned)
+
+    Returns a formatted report string or an error message if data is thin.
+    """
+    if not our_data or not their_data:
+        return "Not enough data for matchup analysis."
+
+    our_members = {
+        pid: m for pid, m in our_data.get("members", {}).items()
+        if isinstance(m, dict) and m.get("bs_estimate", 0) > 0
+    }
+    their_members = {
+        pid: m for pid, m in their_data.get("members", {}).items()
+        if isinstance(m, dict) and m.get("bs_estimate", 0) > 0
+    }
+
+    if not our_members or not their_members:
+        return "Insufficient stat data for player-level analysis."
+
+    their_name = their_data.get("faction_name", "Enemy")
+    our_avg_bs = our_data.get("avg_bs", 1) or 1
+
+    sweet_spots = []
+    can_run_free = []
+    threats = []
+
+    for _pid, tm in their_members.items():
+        tbs = tm.get("bs_estimate", 0)
+        if tbs > our_avg_bs * 1.2:
+            threats.append(tm)
+
+    for _pid, om in our_members.items():
+        our_bs = om.get("bs_estimate", 0)
+        if not our_bs:
+            continue
+
+        dominated_count = sum(
+            1 for tm in their_members.values()
+            if our_bs >= 1.2 * tm.get("bs_estimate", 1)
+        )
+        if dominated_count >= max(1, len(their_members) * 0.5):
+            can_run_free.append({
+                "name": om["name"],
+                "bs_human": om.get("bs_estimate_human", _fmt_bs(our_bs)),
+                "target_count": dominated_count,
+            })
+
+        for _tpid, tm in their_members.items():
+            tbs = tm.get("bs_estimate", 0)
+            if not tbs:
+                continue
+            ratio = tbs / our_bs
+            if 0.8 <= ratio <= 1.1:
+                sweet_spots.append({
+                    "our_name": om["name"],
+                    "our_bs_human": om.get("bs_estimate_human", _fmt_bs(our_bs)),
+                    "their_name": tm["name"],
+                    "their_bs_human": tm.get("bs_estimate_human", _fmt_bs(tbs)),
+                    "ratio": round(ratio, 2),
+                })
+
+    sweet_spots = sorted(sweet_spots, key=lambda s: abs(s["ratio"] - 1.0))[:8]
+    can_run_free = sorted(can_run_free, key=lambda d: d["target_count"], reverse=True)[:5]
+    threats = sorted(threats, key=lambda m: m.get("bs_estimate", 0), reverse=True)[:5]
+
+    lines = [
+        f"{'─'*46}",
+        f"  PLAYER MATCHUP REPORT — vs {their_name}",
+        f"  (Win = 1.2x their BS | Max respect = 0.8–1.1x yours)",
+        f"{'─'*46}",
+    ]
+
+    if sweet_spots:
+        lines.append("  SWEET SPOT TARGETS (max respect zone):")
+        for s in sweet_spots:
+            lines.append(
+                f"    {s['our_name'][:14]:<14} ({s['our_bs_human']:>8})  →  "
+                f"{s['their_name'][:14]:<14} ({s['their_bs_human']:>8})  "
+                f"[{s['ratio']:.2f}x]"
+            )
+        lines.append(f"{'─'*46}")
+
+    if can_run_free:
+        lines.append("  CAN RUN FREE (outclasses 50%+ of their roster 1.2x):")
+        for d in can_run_free:
+            lines.append(
+                f"    {d['name']:<16} ({d['bs_human']:<8}) "
+                f"— beats {d['target_count']}/{len(their_members)} of them"
+            )
+        lines.append(f"{'─'*46}")
+
+    if threats:
+        lines.append("  WATCH OUT (their players > 1.2x our avg BS):")
+        for t in threats:
+            lines.append(
+                f"    {t['name']:<16} ({t.get('bs_estimate_human', '?'):<8})"
+            )
+        lines.append(f"{'─'*46}")
+
+    lines.append(
+        f"  {len(sweet_spots)} sweet-spot pairs | "
+        f"{len(can_run_free)} players who can run free | "
+        f"{len(threats)} incoming threats"
+    )
+
+    return "\n".join(lines)
+
+
 def compare_factions(our_data, their_data):
     """
     Builds a structured comparison string for Jeremy to present.

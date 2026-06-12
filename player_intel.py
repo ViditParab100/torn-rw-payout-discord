@@ -289,6 +289,48 @@ def enrich_player(api_key, discord_id, display_name):
         print(f"[PlayerIntel] enrich_player error (discord_id={discord_id}): {e}")
 
 
+def get_player_name_context(player_name, api_key):
+    """
+    Looks up a player by display name → torn_id in faction_members, then fetches
+    their public Torn v1 profile. Returns a formatted context string or "".
+    Used when Jeremy is asked about a specific member (not the speaker).
+    """
+    torn_id = memory_db.get_member_torn_id(player_name)
+    if not torn_id:
+        return ""
+    profile = fetch_player_by_id(torn_id, api_key)
+    if not profile:
+        return ""
+
+    name = profile.get("name", player_name)
+    level = profile.get("level")
+    title = profile.get("title", "")
+    donator = profile.get("donator")
+    gender = profile.get("gender")
+    age_days = profile.get("age")
+    status_obj = profile.get("status") or {}
+    status = status_obj.get("state", "Okay") if isinstance(status_obj, dict) else "?"
+    faction_obj = profile.get("faction") or {}
+    faction_pos = faction_obj.get("position") if isinstance(faction_obj, dict) else None
+
+    parts = []
+    if level:
+        parts.append(f"Level {level}" + (f" ({title})" if title else ""))
+    if status and status.lower() not in ("okay", "ok"):
+        parts.append(f"Status: {status}")
+    if donator:
+        parts.append("Donator")
+    if gender:
+        parts.append(f"Gender: {gender}")
+    if faction_pos:
+        parts.append(f"Faction: {faction_pos}")
+    if age_days:
+        years = age_days // 365
+        parts.append(f"Age: ~{years}yr" if years else f"Age: {age_days}d")
+
+    return f"[Live Profile — {name}] " + " | ".join(parts) if parts else ""
+
+
 def get_player_context(discord_id):
     """
     Returns a compact formatted string from the last cached Torn profile.
