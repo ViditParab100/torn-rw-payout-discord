@@ -1,12 +1,13 @@
 """
 CyberJeremy Test Suite
 ======================
-Five layers:
+Six layers:
   1. Semantic search (fast, deterministic) — expected player in top N results
   2. Meaning equivalence — two phrasings should surface the same player
   3. Jeremy chat (slower, generative) — keyword checks on live Sarvam responses
   4. Player intel — title tier logic, context formatting (no API needed)
-  5. FFScouter matchup — per-player stat comparison logic (no API needed)
+  5. FFScouter matchup — per-player stat comparison text report (no API needed)
+  6. Battle report — PDF generator: matchup computation + file output (no API needed)
 
 Run:  python test_jeremy.py
       python test_jeremy.py --chat   # include the slower generative tests
@@ -570,6 +571,211 @@ for enemy_bs, expect_sweet, note in _border_cases:
     sweet_section = r2.lower().split("sweet spot targets")[-1].split("─")[0] if "sweet spot targets" in r2.lower() else ""
     is_sweet = "enemyborder" in sweet_section
     check_report(is_sweet == expect_sweet, note, f"ratio={ratio:.2f}, sweet_section: {sweet_section[:120]}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAYER 6 — Battle report: matchup computation + PDF generation (no API needed)
+# ══════════════════════════════════════════════════════════════════════════════
+header("LAYER 6 — Battle report (matchup logic + PDF output)")
+
+import battle_report
+import os as _os
+
+# Shared mock data — same 3v3 setup used in Layer 5 for consistency
+_BR_OURS = [
+    {"name": "AlphaStrike",   "bs_estimate": 10_000_000, "bs_estimate_human": "10.0m"},
+    {"name": "BetaBrawler",   "bs_estimate":  5_000_000, "bs_estimate_human":  "5.0m"},
+    {"name": "GammaGrappler", "bs_estimate":  2_000_000, "bs_estimate_human":  "2.0m"},
+]
+_BR_THEIRS = [
+    {"name": "EnemyKing",  "bs_estimate": 8_000_000, "bs_estimate_human": "8.0m"},
+    {"name": "EnemyMid",   "bs_estimate": 4_500_000, "bs_estimate_human": "4.5m"},
+    {"name": "EnemyWeak",  "bs_estimate": 1_500_000, "bs_estimate_human": "1.5m"},
+]
+
+_our_p, _their_p = battle_report._compute_matchups(_BR_OURS, _BR_THEIRS)
+
+
+def chk(cond, note, detail=""):
+    global passed, failed
+    if cond:
+        ok(f"[battle_report] {note}")
+        passed += 1
+    else:
+        fail(f"[battle_report] {note}" + (f" | {detail}" if detail else ""))
+        failed += 1
+
+
+# ── 6a: our_profiles sorted by BS descending ──────────────────────────────────
+chk(_our_p[0]["name"] == "AlphaStrike",   "our_profiles[0] is highest-BS player (AlphaStrike 10m)")
+chk(_our_p[-1]["name"] == "GammaGrappler","our_profiles[-1] is lowest-BS player (GammaGrappler 2m)")
+
+# ── 6b: their_profiles sorted by BS descending ────────────────────────────────
+chk(_their_p[0]["name"] == "EnemyKing",  "their_profiles[0] is highest-BS enemy (EnemyKing 8m)")
+chk(_their_p[-1]["name"] == "EnemyWeak", "their_profiles[-1] is lowest-BS enemy (EnemyWeak 1.5m)")
+
+# ── 6c: AlphaStrike (10m) sweet targets ───────────────────────────────────────
+# EnemyKing (8m): 8/10 = 0.80 → exactly at lower bound → sweet spot
+_alpha_sweet_names = [e[0] for e in _our_p[0]["sweet"]]
+chk("EnemyKing" in _alpha_sweet_names,
+    "AlphaStrike sweet-spot target: EnemyKing (ratio 0.80, lower bound inclusive)",
+    str(_alpha_sweet_names))
+
+# ── 6d: AlphaStrike (10m) domination targets ──────────────────────────────────
+# EnemyMid (4.5m): 10 >= 1.2*4.5=5.4 → win
+# EnemyWeak (1.5m): 10 >= 1.8 → win
+_alpha_win_names = [e[0] for e in _our_p[0]["wins"]]
+chk("EnemyMid"  in _alpha_win_names, "AlphaStrike dominates EnemyMid (10m >= 1.2*4.5m)", str(_alpha_win_names))
+chk("EnemyWeak" in _alpha_win_names, "AlphaStrike dominates EnemyWeak (10m >= 1.2*1.5m)", str(_alpha_win_names))
+
+# ── 6e: AlphaStrike (10m) has no threats ──────────────────────────────────────
+# No enemy has >= 1.2*10=12m BS
+chk(len(_our_p[0]["threats"]) == 0,
+    "AlphaStrike has zero threats (no enemy >= 12m)",
+    str([e[0] for e in _our_p[0]["threats"]]))
+
+# ── 6f: BetaBrawler (5m) sweet/win/threat ─────────────────────────────────────
+# EnemyMid (4.5m): 4.5/5 = 0.90 → sweet
+# EnemyWeak (1.5m): 5 >= 1.8 → win
+# EnemyKing (8m): 8 >= 1.2*5=6 → threat
+_beta_sweet   = [e[0] for e in _our_p[1]["sweet"]]
+_beta_wins    = [e[0] for e in _our_p[1]["wins"]]
+_beta_threats = [e[0] for e in _our_p[1]["threats"]]
+chk("EnemyMid"  in _beta_sweet,   "BetaBrawler sweet: EnemyMid (ratio 0.90)")
+chk("EnemyWeak" in _beta_wins,    "BetaBrawler win:   EnemyWeak (5m >= 1.2*1.5m)")
+chk("EnemyKing" in _beta_threats, "BetaBrawler threat: EnemyKing (8m >= 1.2*5m=6m)")
+
+# ── 6g: GammaGrappler (2m) ────────────────────────────────────────────────────
+# EnemyWeak (1.5m): 2 >= 1.2*1.5=1.8 → win
+# EnemyMid (4.5m): 4.5 >= 1.2*2=2.4 → threat
+# EnemyKing (8m): 8 >= 2.4 → threat
+_gamma_wins    = [e[0] for e in _our_p[2]["wins"]]
+_gamma_threats = [e[0] for e in _our_p[2]["threats"]]
+chk("EnemyWeak" in _gamma_wins,    "GammaGrappler win:    EnemyWeak (2m >= 1.2*1.5m=1.8m)")
+chk("EnemyMid"  in _gamma_threats, "GammaGrappler threat: EnemyMid (4.5m >= 1.2*2m=2.4m)")
+chk("EnemyKing" in _gamma_threats, "GammaGrappler threat: EnemyKing (8m >= 2.4m)")
+
+# ── 6h: EnemyKing (8m) — enemy perspective ────────────────────────────────────
+# AlphaStrike (10m): ratio=10/8=1.25 → NOT sweet, NOT win, IS our_threat (10 >= 9.6)
+# BetaBrawler (5m):  ratio=5/8=0.625 → NOT sweet (<0.8), IS win (8 >= 6)
+# GammaGrappler (2m): ratio=2/8=0.25 → NOT sweet, IS win (8 >= 2.4)
+_eking_wins    = [e[0] for e in _their_p[0]["wins"]]
+_eking_threats = [e[0] for e in _their_p[0]["our_threats"]]
+chk("BetaBrawler"   in _eking_wins,    "EnemyKing dominates BetaBrawler (8m >= 1.2*5m=6m)")
+chk("GammaGrappler" in _eking_wins,    "EnemyKing dominates GammaGrappler (8m >= 2.4m)")
+chk("AlphaStrike"   in _eking_threats, "AlphaStrike counters EnemyKing (10m >= 1.2*8m=9.6m)")
+
+# ── 6i: EnemyWeak (1.5m) — all our members counter them ──────────────────────
+# All three of our members have BS >= 1.2*1.5=1.8m
+_eweak_threats = [e[0] for e in _their_p[2]["our_threats"]]
+chk(
+    all(n in _eweak_threats for n in ["AlphaStrike", "BetaBrawler", "GammaGrappler"]),
+    "All 3 of our members counter EnemyWeak (all >= 1.2*1.5m=1.8m)",
+    str(_eweak_threats),
+)
+
+# ── 6j: MAX_SHOW cap enforced ─────────────────────────────────────────────────
+_cap = battle_report.MAX_SHOW
+chk(
+    all(len(p["sweet"]) <= _cap and len(p["wins"]) <= _cap and len(p["threats"]) <= _cap
+        for p in _our_p),
+    f"our_profiles: no cell exceeds MAX_SHOW={_cap} entries",
+)
+chk(
+    all(len(p["sweet"]) <= _cap and len(p["wins"]) <= _cap and len(p["our_threats"]) <= _cap
+        for p in _their_p),
+    f"their_profiles: no cell exceeds MAX_SHOW={_cap} entries",
+)
+
+# ── 6k: Zero-BS and invalid members are filtered out ─────────────────────────
+_dirty = _BR_OURS + [
+    {"name": "ZeroGuy",    "bs_estimate": 0,    "bs_estimate_human": "0"},
+    {"name": "NegativeGuy","bs_estimate": -500,  "bs_estimate_human": "-"},
+    {"name": "NotADict"},   # wrong type
+]
+_clean_p, _ = battle_report._compute_matchups(_dirty, _BR_THEIRS)
+_clean_names = [p["name"] for p in _clean_p]
+chk("ZeroGuy"     not in _clean_names, "Zero-BS member filtered from profiles")
+chk("NegativeGuy" not in _clean_names, "Negative-BS member filtered from profiles")
+chk(len(_clean_p) == 3,               "Only the 3 valid members appear after filtering")
+
+# ── 6l: String-keyed members dict (MongoDB cache format) ─────────────────────
+_str_ours   = [{"name": m["name"], "bs_estimate": m["bs_estimate"],
+                "bs_estimate_human": m["bs_estimate_human"]} for m in _BR_OURS]
+_str_theirs = [{"name": m["name"], "bs_estimate": m["bs_estimate"],
+                "bs_estimate_human": m["bs_estimate_human"]} for m in _BR_THEIRS]
+try:
+    _sp, _tp = battle_report._compute_matchups(_str_ours, _str_theirs)
+    chk(len(_sp) == 3 and len(_tp) == 3,
+        "String-keyed member list produces correct profile count (3+3)",
+        f"our={len(_sp)}, their={len(_tp)}")
+except Exception as e:
+    chk(False, "String-keyed member list raises no exception", str(e))
+
+# ── 6m: PDF generation — produces a valid non-empty file ─────────────────────
+_PDF_MOCK_OURS = {
+    "faction_name": "KO WeightRoom",
+    "member_count": 3, "total_bs": 17_000_000,
+    "avg_bs": 5_666_667, "avg_bs_human": "5.7m",
+    "top_fighter": {"name": "AlphaStrike", "bs_human": "10.0m"},
+    "members": {i: m for i, m in enumerate(_BR_OURS)},
+}
+_PDF_MOCK_THEIRS = {
+    "faction_name": "Enemy Faction",
+    "member_count": 3, "total_bs": 14_000_000,
+    "avg_bs": 4_666_667, "avg_bs_human": "4.7m",
+    "top_fighter": {"name": "EnemyKing", "bs_human": "8.0m"},
+    "members": {i: m for i, m in enumerate(_BR_THEIRS)},
+}
+_pdf_path = "test_battle_report_TEMP.pdf"
+try:
+    battle_report.generate_battle_report(_PDF_MOCK_OURS, _PDF_MOCK_THEIRS, _pdf_path)
+    _exists = _os.path.exists(_pdf_path)
+    _size   = _os.path.getsize(_pdf_path) if _exists else 0
+    chk(_exists and _size > 1024, f"PDF generated successfully ({_size} bytes)")
+except Exception as e:
+    chk(False, "PDF generation raised no exception", str(e))
+finally:
+    if _os.path.exists(_pdf_path):
+        _os.remove(_pdf_path)
+
+# ── 6n: PDF generation with large roster (page-break stress test) ─────────────
+_big_ours = [
+    {"name": f"OurPlayer{i:02d}", "bs_estimate": (30 - i) * 1_000_000,
+     "bs_estimate_human": f"{30 - i}.0m"}
+    for i in range(20)
+]
+_big_theirs = [
+    {"name": f"Enemy{i:02d}", "bs_estimate": (25 - i) * 1_000_000,
+     "bs_estimate_human": f"{25 - i}.0m"}
+    for i in range(20)
+]
+_PDF_BIG_OURS = {
+    "faction_name": "KO WeightRoom", "member_count": 20,
+    "total_bs": sum(m["bs_estimate"] for m in _big_ours),
+    "avg_bs": sum(m["bs_estimate"] for m in _big_ours) // 20,
+    "avg_bs_human": "15.5m",
+    "top_fighter": {"name": "OurPlayer00", "bs_human": "30.0m"},
+    "members": {i: m for i, m in enumerate(_big_ours)},
+}
+_PDF_BIG_THEIRS = {
+    "faction_name": "Enemy Faction", "member_count": 20,
+    "total_bs": sum(m["bs_estimate"] for m in _big_theirs),
+    "avg_bs": sum(m["bs_estimate"] for m in _big_theirs) // 20,
+    "avg_bs_human": "12.5m",
+    "top_fighter": {"name": "Enemy00", "bs_human": "25.0m"},
+    "members": {i: m for i, m in enumerate(_big_theirs)},
+}
+_pdf_big_path = "test_battle_report_big_TEMP.pdf"
+try:
+    battle_report.generate_battle_report(_PDF_BIG_OURS, _PDF_BIG_THEIRS, _pdf_big_path)
+    _big_size = _os.path.getsize(_pdf_big_path) if _os.path.exists(_pdf_big_path) else 0
+    chk(_big_size > 4096, f"Large-roster PDF (20v20) generated without crash ({_big_size} bytes)")
+except Exception as e:
+    chk(False, "Large-roster PDF (20v20) raises no exception", str(e))
+finally:
+    if _os.path.exists(_pdf_big_path):
+        _os.remove(_pdf_big_path)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

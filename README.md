@@ -267,10 +267,10 @@ This is a one-time operation — the detector is idempotent and skips already-st
 
 ## 🧪 Test Suite — `test_jeremy.py`
 
-Five-layer test suite for the CyberJeremy AI:
+Six-layer test suite for the CyberJeremy AI:
 
 ```bash
-python test_jeremy.py          # Layers 1, 2, 4, 5 (fast, ~25s)
+python test_jeremy.py          # Layers 1, 2, 4, 5, 6 (fast, ~30s)
 python test_jeremy.py --chat   # All layers including live Sarvam calls (~60s)
 ```
 
@@ -281,6 +281,7 @@ python test_jeremy.py --chat   # All layers including live Sarvam calls (~60s)
 | 3 — Generative chat | 10 | Live Sarvam calls with keyword checks on Jeremy's reply. Includes identity test and a stat-difference matchup query. |
 | 4 — Player intel | 22 | Title tier logic, context formatting, lore archive verification, and gender seed checks. |
 | 5 — FFScouter matchup | 15 | Pure unit tests for `player_matchup_report()` — sweet-spot detection, win-zone classification, threat flagging, boundary precision (0.80/1.10/0.79/1.21), string-keyed cache format, and null-input guards. |
+| 6 — Battle report | 26 | `_compute_matchups()` logic (sorting, per-player sweet/win/threat from both perspectives), zero-BS filtering, MAX_SHOW cap, string-keyed member dicts, PDF file output (3v3 and 20v20 page-break stress test). |
 
 ---
 
@@ -303,7 +304,7 @@ torn-rw-payout-discord/
 ├── pdf_convertor.py     # fpdf2 PDF report (landscape)                                 ← DO NOT MODIFY
 ├── seed_db.py           # Historical war data backfill utility                          ← DO NOT MODIFY
 ├── seed_milestones.py   # One-time chain + upgrade milestone seeder
-├── test_jeremy.py       # 5-layer CyberJeremy test suite (57 tests)
+├── test_jeremy.py       # 6-layer CyberJeremy test suite (83 tests)
 ├── Ranger Chats.txt     # Jeremy's personality baseline (last 50 lines loaded)
 ├── Sad_Chats.txt        # Archive of memorial/sad messages
 ├── requirements.txt     # Python dependencies
