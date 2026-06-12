@@ -1,11 +1,12 @@
 """
 CyberJeremy Test Suite
 ======================
-Four layers:
+Five layers:
   1. Semantic search (fast, deterministic) — expected player in top N results
   2. Meaning equivalence — two phrasings should surface the same player
   3. Jeremy chat (slower, generative) — keyword checks on live Sarvam responses
   4. Player intel — title tier logic, context formatting (no API needed)
+  5. FFScouter matchup — per-player stat comparison logic (no API needed)
 
 Run:  python test_jeremy.py
       python test_jeremy.py --chat   # include the slower generative tests
@@ -226,6 +227,15 @@ else:
         "Jeremy self-identifies as Jeremy/CyberJeremy, not CJ"
     ))
 
+    # Layer 3 matchup test: Jeremy mentions stat comparison when asked
+    CHAT_CASES.append((
+        "Star_vader",
+        "hey jeremy how was the stat difference last war? who should we be hitting?",
+        ["ratio", "stat", "bs", "hit", "sweet", "matchup", "0.8", "1.1", "1.2",
+         "dominate", "outclass", "run free", "battle"],
+        "stat difference query → Jeremy references matchup mechanics"
+    ))
+
     for case in CHAT_CASES:
         run_chat(*case)
         time.sleep(1)  # small pause between Sarvam calls
@@ -361,6 +371,205 @@ for name in known_male:
     else:
         fail(f"[gender seed] {name} expected Male, got {ai_engine.PLAYER_GENDERS.get(name)}")
         failed += 1
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAYER 5 — FFScouter matchup logic (pure unit tests, no API needed)
+# ══════════════════════════════════════════════════════════════════════════════
+header("LAYER 5 — FFScouter matchup logic (pure unit tests)")
+
+import ffscouter
+
+# Mock data mirrors the structure returned by ffscouter.scout_faction():
+#   members: {player_id (int or str): {name, bs_estimate, bs_estimate_human, fair_fight}}
+#   avg_bs, total_bs, member_count, faction_name, top_fighter
+
+_MOCK_OURS = {
+    "faction_name": "KO WeightRoom",
+    "member_count": 3,
+    "total_bs": 17_000_000,
+    "avg_bs": 5_666_667,
+    "avg_bs_human": "5.7m",
+    "top_fighter": {"name": "AlphaStrike", "bs_human": "10.0m"},
+    "members": {
+        1001: {
+            "name": "AlphaStrike",
+            "bs_estimate": 10_000_000,
+            "bs_estimate_human": "10.0m",
+            "fair_fight": 1.0,
+        },
+        1002: {
+            "name": "BetaBrawler",
+            "bs_estimate": 5_000_000,
+            "bs_estimate_human": "5.0m",
+            "fair_fight": 1.0,
+        },
+        1003: {
+            "name": "GammaGrappler",
+            "bs_estimate": 2_000_000,
+            "bs_estimate_human": "2.0m",
+            "fair_fight": 1.0,
+        },
+    },
+}
+
+_MOCK_THEIRS = {
+    "faction_name": "Enemy Faction",
+    "member_count": 3,
+    "total_bs": 14_000_000,
+    "avg_bs": 4_666_667,
+    "avg_bs_human": "4.7m",
+    "top_fighter": {"name": "EnemyKing", "bs_human": "8.0m"},
+    "members": {
+        2001: {
+            "name": "EnemyKing",
+            "bs_estimate": 8_000_000,
+            "bs_estimate_human": "8.0m",
+            "fair_fight": 1.0,
+        },
+        2002: {
+            "name": "EnemyMid",
+            "bs_estimate": 4_500_000,
+            "bs_estimate_human": "4.5m",
+            "fair_fight": 1.0,
+        },
+        2003: {
+            "name": "EnemyWeak",
+            "bs_estimate": 1_500_000,
+            "bs_estimate_human": "1.5m",
+            "fair_fight": 1.0,
+        },
+    },
+}
+
+_report = ffscouter.player_matchup_report(_MOCK_OURS, _MOCK_THEIRS)
+_report_lower = _report.lower()
+
+
+def check_report(condition, note, detail=""):
+    global passed, failed
+    if condition:
+        ok(f"[matchup] {note}")
+        passed += 1
+    else:
+        fail(f"[matchup] {note}" + (f" | {detail}" if detail else ""))
+        failed += 1
+
+
+# 5a: Sweet spot detection
+# BetaBrawler (5m) vs EnemyMid (4.5m): ratio = 4.5/5.0 = 0.90 → sweet spot ✅
+check_report(
+    "betabrawler" in _report_lower and "enemymid" in _report_lower,
+    "BetaBrawler vs EnemyMid appears as sweet-spot pair (ratio 0.90)",
+    _report[:300],
+)
+# AlphaStrike (10m) vs EnemyKing (8m): ratio = 8/10 = 0.80 → sweet spot (boundary) ✅
+check_report(
+    "alphastrike" in _report_lower and "enemyking" in _report_lower,
+    "AlphaStrike vs EnemyKing appears as sweet-spot pair (ratio 0.80 boundary)",
+    _report[:300],
+)
+
+# 5b: Win zone / can-run-free detection
+# AlphaStrike (10m) vs EnemyMid (4.5m): 10m >= 1.2 * 4.5m = 5.4m ✅
+# AlphaStrike (10m) vs EnemyWeak (1.5m): 10m >= 1.8m ✅
+# AlphaStrike (10m) vs EnemyKing (8m): 10m >= 1.2 * 8m = 9.6m ✅ → beats all 3 → can run free
+check_report(
+    "alphastrike" in _report_lower and ("run free" in _report_lower or "3/3" in _report),
+    "AlphaStrike flagged as can-run-free (beats all 3 enemies at 1.2x)",
+    _report,
+)
+
+# 5c: GammaGrappler (2m) vs EnemyMid (4.5m): 4.5/2 = 2.25 → NOT sweet spot, NOT win zone
+# GammaGrappler should NOT appear paired with EnemyMid
+check_report(
+    not ("gammagrappler" in _report_lower and "enemymid" in _report_lower),
+    "GammaGrappler NOT paired with EnemyMid (ratio 2.25 is outside sweet spot)",
+    _report[:400],
+)
+
+# 5d: Threat detection
+# EnemyKing (8m) vs our avg (5.67m): 8m > 5.67m * 1.2 = 6.8m → threat ✅
+check_report(
+    "enemyking" in _report_lower and ("watch out" in _report_lower or "threat" in _report_lower),
+    "EnemyKing flagged as threat (8m > 1.2x our avg 5.67m)",
+    _report,
+)
+# EnemyWeak (1.5m) is NOT a threat (below our avg)
+check_report(
+    "watch out" not in _report_lower or "enemyweak" not in _report_lower.split("watch out", 1)[-1][:200],
+    "EnemyWeak NOT listed as a threat",
+    _report,
+)
+
+# 5e: Report contains mechanics legend
+check_report(
+    "1.2" in _report and "0.8" in _report and "1.1" in _report,
+    "Report header contains mechanics ratios (1.2x win / 0.8-1.1 sweet spot)",
+    _report[:200],
+)
+
+# 5f: Report summary line
+check_report(
+    "sweet-spot" in _report_lower or "sweet spot" in _report_lower,
+    "Report summary mentions sweet-spot count",
+    _report[-200:],
+)
+
+# 5g: Empty data guards
+check_report(
+    "not enough" in ffscouter.player_matchup_report(None, None).lower(),
+    "Returns error message when both args are None",
+)
+check_report(
+    "not enough" in ffscouter.player_matchup_report({}, _MOCK_THEIRS).lower()
+    or "insufficient" in ffscouter.player_matchup_report({}, _MOCK_THEIRS).lower(),
+    "Returns error message when our_data is empty dict (no members)",
+)
+
+# 5h: Works with string keys (cached MongoDB data has str keys, not int keys)
+_mock_theirs_str_keys = dict(_MOCK_THEIRS)
+_mock_theirs_str_keys["members"] = {
+    str(k): v for k, v in _MOCK_THEIRS["members"].items()
+}
+_report_str = ffscouter.player_matchup_report(_MOCK_OURS, _mock_theirs_str_keys)
+check_report(
+    "betabrawler" in _report_str.lower() or "alphastrike" in _report_str.lower(),
+    "Report works correctly with string-keyed members dict (MongoDB cache format)",
+    _report_str[:200],
+)
+
+# 5i: Ratio boundary precision
+# Ratio exactly 0.8 is sweet spot (lower bound inclusive)
+# Ratio exactly 1.1 is sweet spot (upper bound inclusive)
+# Ratio 0.79 is NOT sweet spot
+_border_ours = {
+    "faction_name": "KOWR", "member_count": 1, "total_bs": 1_000_000,
+    "avg_bs": 1_000_000, "avg_bs_human": "1.0m",
+    "top_fighter": {"name": "Tester", "bs_human": "1.0m"},
+    "members": {99: {"name": "Tester", "bs_estimate": 1_000_000, "bs_estimate_human": "1.0m", "fair_fight": 1.0}},
+}
+_fmt_bs_simple = lambda v: f"{v/1_000_000:.1f}m" if v >= 1_000_000 else f"{v/1_000:.0f}k"
+_border_cases = [
+    (800_000,   True,  "ratio 0.80 exactly → sweet spot (lower bound inclusive)"),
+    (1_100_000, True,  "ratio 1.10 exactly → sweet spot (upper bound inclusive)"),
+    (790_000,   False, "ratio 0.79 → NOT sweet spot (below lower bound)"),
+    (1_210_000, False, "ratio 1.21 → NOT sweet spot (win zone, above upper bound)"),
+]
+for enemy_bs, expect_sweet, note in _border_cases:
+    _b_theirs = {
+        "faction_name": "Enemy", "member_count": 1, "total_bs": enemy_bs,
+        "avg_bs": enemy_bs, "avg_bs_human": _fmt_bs_simple(enemy_bs),
+        "top_fighter": {"name": "EnemyBorder", "bs_human": _fmt_bs_simple(enemy_bs)},
+        "members": {88: {"name": "EnemyBorder", "bs_estimate": enemy_bs,
+                         "bs_estimate_human": _fmt_bs_simple(enemy_bs), "fair_fight": 1.0}},
+    }
+    ratio = enemy_bs / 1_000_000
+    r2 = ffscouter.player_matchup_report(_border_ours, _b_theirs)
+    # Check if EnemyBorder appears specifically in the sweet-spot section of the report
+    sweet_section = r2.lower().split("sweet spot targets")[-1].split("─")[0] if "sweet spot targets" in r2.lower() else ""
+    is_sweet = "enemyborder" in sweet_section
+    check_report(is_sweet == expect_sweet, note, f"ratio={ratio:.2f}, sweet_section: {sweet_section[:120]}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

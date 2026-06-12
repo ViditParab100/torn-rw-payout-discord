@@ -58,10 +58,13 @@ async def on_message(message):
         if not clean_message:
             clean_message = "hey buddy."
 
-        scout_keywords = ["scout", "war report", "stats", "war summary", "how are we doing", "status"]
-        
+        # Route A fires ONLY for explicit war report/scout requests.
+        # "stats", "status", "how are we doing" deliberately excluded — they're too broad
+        # and would swallow FFScouter / player stat requests that belong in Route B.
+        SCOUT_TRIGGERS = ["scout", "war report", "war summary"]
+
         # --- ROUTE A: THE SCOUT / WAR REPORT ---
-        if any(keyword in clean_message for keyword in scout_keywords):
+        if any(trigger in clean_message for trigger in SCOUT_TRIGGERS):
             async with message.channel.typing():
                 api_key = memory_db.get_user_key(message.author.id)
                 if not api_key:
@@ -100,6 +103,8 @@ async def on_message(message):
         # --- ROUTE B: NATURAL CHAT ---
         else:
             async with message.channel.typing():
+                loop = asyncio.get_event_loop()
+
                 # 1. Build proper conversation turns from recent channel history
                 raw_history = [msg async for msg in message.channel.history(limit=8)]
                 raw_history.reverse()
@@ -116,41 +121,115 @@ async def on_message(message):
                 # 2. Detect everyone mentioned for associative lore loading
                 speaker_name = message.author.display_name
                 people_mentioned = [speaker_name]
+                mentioned_player_names = []  # real names from NICKNAMES found in message
                 for real_name, nicks in ai_engine.NICKNAMES.items():
                     if real_name.lower() in clean_message or any(n.lower() in clean_message for n in nicks):
                         if real_name not in people_mentioned:
                             people_mentioned.append(real_name)
+                        if real_name != speaker_name:
+                            mentioned_player_names.append(real_name)
 
-                # 3. Get Torn profile for the speaker — fetch synchronously if they're asking
-                #    about their own data, otherwise use the last cached version
                 discord_id = str(message.author.id)
                 speaker_api_key = memory_db.get_user_key(discord_id)
 
-                PROFILE_QUESTION_KWS = [
+                # 3. Detect intent — what data is this request asking for?
+
+                # Own profile questions → sync enrich before replying
+                PROFILE_SELF_KWS = [
                     "my level", "what level am i", "my title", "what's my title",
                     "my company", "my shop", "how long has my company", "how many employees",
                     "am i a donator", "my donator status", "my faction position",
                     "my rank", "what rank am i", "my status", "where am i in torn",
                     "how old am i in torn", "when did i join", "my torn age", "my age in torn",
                 ]
-                wants_fresh_profile = any(kw in clean_message for kw in PROFILE_QUESTION_KWS)
+                wants_fresh_self = any(kw in clean_message for kw in PROFILE_SELF_KWS)
 
-                if speaker_api_key and wants_fresh_profile:
-                    # Synchronous fetch so Jeremy has up-to-date data before replying
-                    player_intel.enrich_player(speaker_api_key, discord_id, speaker_name)
+                # FFScouter / battle stats request → live fetch from FFScouter API
+                FF_REQUEST_KWS = [
+                    "ff scouter", "ffscouter", "battle stats", "bs estimate",
+                    "enemy stats", "their battle stats", "scout them", "check their stats",
+                    "generate battle stats", "pull ff", "ff data", "battle intel",
+                    "war prep", "battle prep", "compare stats", "compare us",
+                ]
+                # Per-player matchup breakdown request
+                MATCHUP_KWS = [
+                    "stat difference", "player vs", "who can beat", "who to hit",
+                    "who should hit", "matchup", "match up", "player comparison",
+                    "attack who", "target analysis", "hit targets", "who to attack",
+                    "compare players", "which players", "how was the stat",
+                    "their roster", "roster comparison",
+                ]
+                wants_ffscouter = any(kw in clean_message for kw in FF_REQUEST_KWS)
+                wants_matchup = any(kw in clean_message for kw in MATCHUP_KWS)
 
+                # Other player profile lookup → fetch from Torn API by torn_id
+                PLAYER_LOOKUP_KWS = [
+                    "what level is", "how strong is", "what title does", "what rank is",
+                    "check on", "look up", "player info", "how old is",
+                    "are they a donator", "is he a donator", "is she a donator",
+                    "what's their level", "their profile", "check their level",
+                ]
+                wants_player_lookup = any(kw in clean_message for kw in PLAYER_LOOKUP_KWS)
+
+                # 4. Active data fetches — run blocking I/O in thread pool, await results
+                fresh_data_parts = []
+
+                if speaker_api_key and wants_fresh_self:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: player_intel.enrich_player(speaker_api_key, discord_id, speaker_name)
+                    )
+
+                if speaker_api_key and (wants_ffscouter or wants_matchup):
+                    try:
+                        last_war = memory_db.wars_collection.find_one(sort=[("war_id", -1)])
+                        enemy_id = last_war.get("opponent_id") if last_war else None
+                        enemy_name = last_war.get("opponent_name") if last_war else None
+                        if enemy_id:
+                            our_fut = loop.run_in_executor(
+                                None, lambda: ffscouter.scout_faction(speaker_api_key)
+                            )
+                            their_fut = loop.run_in_executor(
+                                None, lambda: ffscouter.scout_faction(
+                                    speaker_api_key, faction_id=enemy_id, faction_name=enemy_name
+                                )
+                            )
+                            our_data, their_data = await asyncio.gather(our_fut, their_fut)
+                            if our_data and their_data:
+                                comparison = ffscouter.compare_factions(our_data, their_data)
+                                fresh_data_parts.append(
+                                    f"LIVE FFSCOUTER DATA (vs {their_data['faction_name']}):\n{comparison}"
+                                )
+                                if wants_matchup:
+                                    matchup = ffscouter.player_matchup_report(our_data, their_data)
+                                    fresh_data_parts.append(
+                                        f"PLAYER MATCHUP ANALYSIS:\n{matchup}"
+                                    )
+                    except Exception as e:
+                        print(f"[Route B FFScouter] {e}")
+
+                if speaker_api_key and wants_player_lookup and mentioned_player_names:
+                    for pname in mentioned_player_names[:2]:  # cap at 2 lookups per message
+                        ctx = await loop.run_in_executor(
+                            None, lambda p=pname: player_intel.get_player_name_context(p, speaker_api_key)
+                        )
+                        if ctx:
+                            fresh_data_parts.append(ctx)
+
+                # 5. Cached speaker profile (always injected if available)
                 torn_context = player_intel.get_player_context(discord_id) if speaker_api_key else ""
 
-                # 4. Get Jeremy's reply
+                # 6. Get Jeremy's reply — extra_context carries live-fetched data at top priority
                 jeremy_reply, use_noping = ai_engine.chat_with_jeremy(
                     user_name=speaker_name,
                     user_message=clean_message,
                     message_history=message_history,
                     people_mentioned=people_mentioned,
-                    player_context=torn_context
+                    player_context=torn_context,
+                    extra_context=fresh_data_parts if fresh_data_parts else None
                 )
 
-                # 5. Send the reply immediately
+                # 7. Send the reply immediately
                 if use_noping:
                     jeremy_reply = f"<:noPing:1469263150913290324> {jeremy_reply}"
                 if not jeremy_reply:
@@ -158,13 +237,13 @@ async def on_message(message):
 
                 await message.channel.send(jeremy_reply)
 
-                # 6. Fire memory consolidation + profile enrichment in the background
-                loop = asyncio.get_event_loop()
+                # 8. Fire memory consolidation + background profile refresh
                 loop.run_in_executor(
                     None,
                     lambda: ai_engine.consolidate_and_save(speaker_name, clean_message, jeremy_reply, people_mentioned)
                 )
-                if speaker_api_key:
+                if speaker_api_key and not wants_fresh_self:
+                    # Only background-refresh if we didn't already sync-fetch above
                     loop.run_in_executor(
                         None,
                         lambda: player_intel.enrich_player(speaker_api_key, discord_id, speaker_name)
