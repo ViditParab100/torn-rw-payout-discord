@@ -51,7 +51,7 @@ CyberJeremy runs on **Sarvam 105B** with a Karpathy-style tiered memory system t
 | :--- | :--- | :--- |
 | `/set_key` | `api_key` | Securely stores your Torn public API key in the MongoDB vault (ephemeral — only you see the response). Required for `/payout`, `/battle_intel`, `/update_intel`, and player profile enrichment. |
 | `/payout` | `total_payout`, `medical_cost`, `api_key` *(optional)*, `pay_per_assist`, `outside_hit_val`, `outside_hit_limit` | Runs the full payout engine and posts Excel + PDF files. Uses your vault key if `api_key` is omitted. |
-| `/battle_intel` | `enemy_faction_id` *(optional)* | Pulls FFScouter battle stats for both factions. Defaults to the last war's opponent. Jeremy gives a bro-style verdict plus a formatted stat comparison table. |
+| `/battle_intel` | `enemy_faction_id` *(optional)* | Pulls FFScouter battle stats for both factions. Defaults to the last war's opponent. Posts Jeremy's bro-style verdict + faction comparison table in chat, then generates and attaches a full per-player PDF report (see `battle_report.py`). |
 | `/update_intel` | *(none)* | Batch-fetches all current faction members' Torn profiles (gender, level, title, Torn ID). Updates the in-memory gender dict and MongoDB `faction_members` collection. Run once after new members join. |
 
 ### Message Mentions
@@ -147,16 +147,35 @@ Torn API profile enrichment using each player's own stored key:
 - **Auto-lore:** title + company facts are automatically written to the lore layer after each profile fetch.
 - Profile enrichment runs in a background thread after every Route B chat message (no blocking).
 
-### 6. Battle Intelligence — `ffscouter.py`
+### 6. Battle Intelligence — `ffscouter.py` + `battle_report.py`
 
 FFScouter integration for war preparation:
 
 - `get_stats(player_ids)`: Batch query `ffscouter.com/api/v1/get-stats` — up to 205 IDs per request, 3s sleep between chunks to stay under 20 req/min. Returns `bs_estimate`, `bs_estimate_human`, `fair_fight`.
 - `scout_faction(api_key, faction_id)`: Full pipeline — Torn member list → FFScouter stats → enriched summary dict. Cached in MongoDB `faction_stats_col`.
 - `compare_factions(our_data, their_data)`: Faction-level summary table — verdict (WE OUTCLASS / EVEN MATCHUP / THEY OUTGUN US), average BS, total BS, top fighters, and threats (their players > 1.5x our avg).
-- `player_matchup_report(our_data, their_data)`: Per-player tactical breakdown based on Torn's battle mechanics — **sweet spot** (0.8–1.1x ratio = max respect), **win zone** (≥1.2x = dominates), **threats** (their players exceeding 1.2x our average). Lists up to 8 sweet-spot matchup pairs, players who can beat 50%+ of the enemy roster, and incoming threats.
+- `player_matchup_report(our_data, their_data)`: Compact text breakdown for chat — sweet spot pairs, players who can run free (beat 50%+ of enemy roster at 1.2x), and incoming threats.
 - **Route B live fetch:** When matchup or FFScouter keywords appear in chat ("stat difference", "who to hit", "matchup", "battle stats", etc.), Jeremy fetches both factions from FFScouter in parallel using `asyncio.gather()` and injects the results as `FRESH LIVE DATA` at the top of his context window — overriding any stale cache.
 - **Natural chat fallback:** when battle keywords appear but no live fetch runs, `chat_with_jeremy()` injects the last cached comparison from MongoDB automatically.
+
+#### `battle_report.py` — Per-Player PDF Report
+
+Full A4 landscape PDF generated automatically by `/battle_intel`, mapping every player in both factions against every opponent. Handles 200–250 players with automatic page breaks and repeated column headers.
+
+**Three sections:**
+
+| Section | Content |
+| :--- | :--- |
+| Summary (page 1) | Side-by-side faction boxes (members, avg BS, total BS, top gun), verdict + ratio, mechanics legend, top 10 sweet-spot matchup pairs |
+| Our Attack Profiles | One row per our member (sorted by BS desc) — Sweet Spot Targets (green), Domination Targets (blue), Threats to Them (red) |
+| Enemy Profiles | One row per enemy member — Our Members in Their Sweet Spot, Our Members They Dominate, Our Members Who Beat Them |
+
+**Battle mechanics encoded in every row:**
+- **Sweet spot (0.8–1.1x):** target's BS is 80–110% of yours — max respect earned
+- **Domination (≥1.2x):** your BS is 1.2x theirs — you win cleanly
+- **Threat:** their BS is 1.2x yours — avoid unless necessary
+
+The PDF is posted as a Discord file attachment immediately after the text verdict. The local file is deleted after upload.
 
 ### 7. Torn API Wrapper — `torn_api.py`
 
@@ -276,7 +295,8 @@ torn-rw-payout-discord/
 ├── ai_engine.py         # Sarvam 105B integration, prompts, personality
 ├── lore_db.py           # ChromaDB semantic lore index (rebuilt from MongoDB at startup)
 ├── player_intel.py      # Torn profile + company enrichment (1h cache, auto-lore)
-├── ffscouter.py         # FFScouter battle stats integration
+├── ffscouter.py         # FFScouter battle stats integration + matchup text report
+├── battle_report.py     # A4 landscape per-player battle intelligence PDF generator
 ├── milestone_detector.py # Auto-detects war/chain/upgrade milestones from Torn API
 ├── chart_generator.py   # Matplotlib bar & pie chart generator                         ← DO NOT MODIFY
 ├── excel_generator.py   # XLSXWriter payout spreadsheet                                ← DO NOT MODIFY
