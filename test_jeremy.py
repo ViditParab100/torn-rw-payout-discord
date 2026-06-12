@@ -307,7 +307,7 @@ ctx_checks = [
     ("Donator",  "donator flag in context"),
     ("Warriors Auto Shop", "company name in context"),
     ("3 stars",  "company stars in context"),
-    ("45 days",  "company age in context"),
+    ("solid",    "company health note in context"),
     ("6 staff",  "employee count in context"),
 ]
 for keyword, note in ctx_checks:
@@ -776,6 +776,175 @@ except Exception as e:
 finally:
     if _os.path.exists(_pdf_big_path):
         _os.remove(_pdf_big_path)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAYER 7 — player_intel enrichment (last_seen, donator flag, company health)
+# ══════════════════════════════════════════════════════════════════════════════
+header("Layer 7 — player_intel enrichment helpers + get_player_name_context")
+import player_intel
+from unittest.mock import patch
+
+
+def pi(cond, note, detail=""):
+    global passed, failed
+    if cond:
+        ok(f"[player_intel] {note}")
+        passed += 1
+    else:
+        fail(f"[player_intel] {note}" + (f" | {detail}" if detail else ""))
+        failed += 1
+
+
+# ── 7a: _fmt_last_seen ────────────────────────────────────────────────────────
+pi(
+    player_intel._fmt_last_seen({"status": "Online", "relative": "Just now"}) == "Online RIGHT NOW",
+    "_fmt_last_seen: Online status -> 'Online RIGHT NOW'",
+)
+pi(
+    player_intel._fmt_last_seen({"status": "Idle", "relative": "5 minutes ago"}) == "5 minutes ago (Idle)",
+    "_fmt_last_seen: Idle + relative -> 'X minutes ago (Idle)'",
+)
+pi(
+    player_intel._fmt_last_seen({"status": "Offline", "relative": "3 days ago"}) == "3 days ago (Offline)",
+    "_fmt_last_seen: Offline + relative -> 'X days ago (Offline)'",
+)
+pi(player_intel._fmt_last_seen(None) is None,    "_fmt_last_seen: None input -> None")
+pi(player_intel._fmt_last_seen({}) is None,      "_fmt_last_seen: empty dict -> None")
+pi(player_intel._fmt_last_seen("bad") is None,   "_fmt_last_seen: non-dict input -> None")
+
+# ── 7b: _company_health_note ──────────────────────────────────────────────────
+pi("booming"    in player_intel._company_health_note(5), "_company_health_note(5) -> booming")
+pi("pretty well" in player_intel._company_health_note(4), "_company_health_note(4) -> doing pretty well")
+pi("solid"      in player_intel._company_health_note(3), "_company_health_note(3) -> solid mid-tier")
+pi("struggle"   in player_intel._company_health_note(2), "_company_health_note(2) -> struggle")
+pi("struggle"   in player_intel._company_health_note(1), "_company_health_note(1) -> struggle")
+pi(player_intel._company_health_note(None) == "",        "_company_health_note(None) -> empty string")
+
+# ── 7c: get_player_name_context — player not in faction_members ───────────────
+with patch("memory_db.get_member_torn_id", return_value=None):
+    _ctx = player_intel.get_player_name_context("NoSuchPlayer", "FAKEKEY")
+    pi(_ctx == "", "Unknown player (no torn_id) -> returns empty string")
+
+# ── 7d: Shared mock profile setup ─────────────────────────────────────────────
+_MOCK_PROFILE_BASE = {
+    "name": "TestPlayer",
+    "level": 55,
+    "title": "Legend",
+    "donator": False,
+    "gender": "Female",
+    "age": 730,
+    "status": {"state": "Okay", "description": ""},
+    "faction": {"position": "Member"},
+    "job": {"position": "Director", "company_id": 999, "company_name": "TestCorp"},
+    "last_action": {"status": "Idle", "relative": "2 hours ago"},
+}
+
+# ── 7e: Non-donator flag — explicitly highlighted ─────────────────────────────
+with (
+    patch("memory_db.get_member_torn_id", return_value=12345),
+    patch("player_intel.fetch_player_by_id", return_value={**_MOCK_PROFILE_BASE, "donator": False}),
+    patch("player_intel.fetch_company", return_value=None),
+):
+    _ctx = player_intel.get_player_name_context("TestPlayer", "FAKEKEY")
+    pi("NO" in _ctx,       "Non-donator: context contains 'NO'")
+    pi("pack" in _ctx,     "Non-donator: context mentions 'pack' (convo hook)")
+    pi("asking" in _ctx,   "Non-donator: context includes 'worth asking' prompt for Jeremy")
+
+# ── 7f: Donator flag ──────────────────────────────────────────────────────────
+with (
+    patch("memory_db.get_member_torn_id", return_value=12345),
+    patch("player_intel.fetch_player_by_id", return_value={**_MOCK_PROFILE_BASE, "donator": True}),
+    patch("player_intel.fetch_company", return_value=None),
+):
+    _ctx = player_intel.get_player_name_context("TestPlayer", "FAKEKEY")
+    pi("Donator: YES" in _ctx, "Donator player: context shows 'Donator: YES'")
+
+# ── 7g: Director company role phrasing ───────────────────────────────────────
+with (
+    patch("memory_db.get_member_torn_id", return_value=12345),
+    patch("player_intel.fetch_player_by_id", return_value=_MOCK_PROFILE_BASE),
+    patch("player_intel.fetch_company", return_value=None),
+):
+    _ctx = player_intel.get_player_name_context("TestPlayer", "FAKEKEY")
+    pi("Director/Owner at" in _ctx,
+       "Director job_pos -> 'Director/Owner at' phrasing",
+       _ctx.split("\n")[-1])
+
+# ── 7h: Employee company role phrasing ────────────────────────────────────────
+_EMP_PROFILE = {**_MOCK_PROFILE_BASE, "job": {"position": "Manager", "company_id": 999, "company_name": "TestCorp"}}
+with (
+    patch("memory_db.get_member_torn_id", return_value=12345),
+    patch("player_intel.fetch_player_by_id", return_value=_EMP_PROFILE),
+    patch("player_intel.fetch_company", return_value=None),
+):
+    _ctx = player_intel.get_player_name_context("TestPlayer", "FAKEKEY")
+    pi("Manager at" in _ctx,
+       "Non-director job_pos -> 'Manager at' phrasing",
+       _ctx.split("\n")[-1])
+
+# ── 7i: Last seen appears in context ─────────────────────────────────────────
+with (
+    patch("memory_db.get_member_torn_id", return_value=12345),
+    patch("player_intel.fetch_player_by_id", return_value=_MOCK_PROFILE_BASE),
+    patch("player_intel.fetch_company", return_value=None),
+):
+    _ctx = player_intel.get_player_name_context("TestPlayer", "FAKEKEY")
+    pi("Last seen:" in _ctx, "last_action present -> 'Last seen:' line appears in context")
+    pi("2 hours ago" in _ctx, "last_action relative time appears verbatim")
+
+# ── 7j: Online RIGHT NOW label ────────────────────────────────────────────────
+_ONLINE_PROFILE = {**_MOCK_PROFILE_BASE, "last_action": {"status": "Online", "relative": "Just now"}}
+with (
+    patch("memory_db.get_member_torn_id", return_value=12345),
+    patch("player_intel.fetch_player_by_id", return_value=_ONLINE_PROFILE),
+    patch("player_intel.fetch_company", return_value=None),
+):
+    _ctx = player_intel.get_player_name_context("TestPlayer", "FAKEKEY")
+    pi("Online RIGHT NOW" in _ctx, "Online player -> 'Online RIGHT NOW' in context")
+
+# ── 7k: Company health from API (5-star) ──────────────────────────────────────
+_CDATA_5STAR = {"type": {"name": "Oil Rig"}, "rating": 5, "employees": [1, 2, 3]}
+with (
+    patch("memory_db.get_member_torn_id", return_value=12345),
+    patch("player_intel.fetch_player_by_id", return_value=_MOCK_PROFILE_BASE),
+    patch("player_intel.fetch_company", return_value=_CDATA_5STAR),
+):
+    _ctx = player_intel.get_player_name_context("TestPlayer", "FAKEKEY")
+    pi("5 stars" in _ctx,    "Company: 5-star rating appears in context")
+    pi("booming" in _ctx,    "Company: 5-star health note 'booming' appears")
+    pi("Oil Rig" in _ctx,    "Company type name appears in context")
+
+# ── 7l: Company health (2-star — struggling) ──────────────────────────────────
+_CDATA_2STAR = {"type": {"name": "Clothing Store"}, "rating": 2, "employees": [1]}
+with (
+    patch("memory_db.get_member_torn_id", return_value=12345),
+    patch("player_intel.fetch_player_by_id", return_value=_MOCK_PROFILE_BASE),
+    patch("player_intel.fetch_company", return_value=_CDATA_2STAR),
+):
+    _ctx = player_intel.get_player_name_context("TestPlayer", "FAKEKEY")
+    pi("struggle" in _ctx,   "Company: 2-star health note 'struggle' appears")
+
+# ── 7m: Non-OK status (hospital/jail) appears ────────────────────────────────
+_HOSP_PROFILE = {**_MOCK_PROFILE_BASE, "status": {"state": "Hospital", "description": "Attacked"}}
+with (
+    patch("memory_db.get_member_torn_id", return_value=12345),
+    patch("player_intel.fetch_player_by_id", return_value=_HOSP_PROFILE),
+    patch("player_intel.fetch_company", return_value=None),
+):
+    _ctx = player_intel.get_player_name_context("TestPlayer", "FAKEKEY")
+    pi("Hospital" in _ctx,  "Hospital status appears in context")
+    pi("Attacked" in _ctx,  "Hospital description detail appears in context")
+
+# ── 7n: No company → no Company line ──────────────────────────────────────────
+_NO_JOB_PROFILE = {**_MOCK_PROFILE_BASE, "job": {}}
+with (
+    patch("memory_db.get_member_torn_id", return_value=12345),
+    patch("player_intel.fetch_player_by_id", return_value=_NO_JOB_PROFILE),
+    patch("player_intel.fetch_company", return_value=None),
+):
+    _ctx = player_intel.get_player_name_context("TestPlayer", "FAKEKEY")
+    pi("Company:" not in _ctx, "No job -> no Company line in context")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -304,8 +304,14 @@ def chat_with_jeremy(user_name, user_message, message_history, people_mentioned=
     # Fresh live data fetched specifically for this request — highest priority
     fresh_section = ""
     if extra_context:
-        fresh_section = "FRESH LIVE DATA (just fetched — use this over anything cached below):\n" + \
-                        "\n\n".join(extra_context) + "\n"
+        fresh_section = (
+            "FRESH LIVE DATA (you just pulled this for this exact request — present it):\n" +
+            "\n\n".join(extra_context) + "\n\n"
+            "DATA RULE: The numbers above are real and live. Be the bro who just looked it up on "
+            "his phone — read it off naturally. Never say you can't access data or that reports are "
+            "above your pay grade when the data is right in front of you. Stay in character, "
+            "but work from what's here.\n"
+        )
 
     system_prompt = f"""{JEREMY_CORE}
 

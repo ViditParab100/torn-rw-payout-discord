@@ -163,14 +163,9 @@ async def on_message(message):
                 wants_ffscouter = any(kw in clean_message for kw in FF_REQUEST_KWS)
                 wants_matchup = any(kw in clean_message for kw in MATCHUP_KWS)
 
-                # Other player profile lookup → fetch from Torn API by torn_id
-                PLAYER_LOOKUP_KWS = [
-                    "what level is", "how strong is", "what title does", "what rank is",
-                    "check on", "look up", "player info", "how old is",
-                    "are they a donator", "is he a donator", "is she a donator",
-                    "what's their level", "their profile", "check their level",
-                ]
-                wants_player_lookup = any(kw in clean_message for kw in PLAYER_LOOKUP_KWS)
+                # Player profile lookup — fires whenever a known faction member is mentioned,
+                # regardless of phrasing. get_player_name_context returns "" if no torn_id found.
+                wants_player_lookup = bool(mentioned_player_names)
 
                 # 4. Active data fetches — run blocking I/O in thread pool, await results
                 fresh_data_parts = []
@@ -181,6 +176,7 @@ async def on_message(message):
                         lambda: player_intel.enrich_player(speaker_api_key, discord_id, speaker_name)
                     )
 
+                battle_pdf_data = None   # (our_data, their_data) when matchup is live-fetched
                 if speaker_api_key and (wants_ffscouter or wants_matchup):
                     try:
                         last_war = memory_db.wars_collection.find_one(sort=[("war_id", -1)])
@@ -206,10 +202,11 @@ async def on_message(message):
                                     fresh_data_parts.append(
                                         f"PLAYER MATCHUP ANALYSIS:\n{matchup}"
                                     )
+                                    battle_pdf_data = (our_data, their_data)
                     except Exception as e:
                         print(f"[Route B FFScouter] {e}")
 
-                if speaker_api_key and wants_player_lookup and mentioned_player_names:
+                if speaker_api_key and mentioned_player_names:
                     for pname in mentioned_player_names[:2]:  # cap at 2 lookups per message
                         ctx = await loop.run_in_executor(
                             None, lambda p=pname: player_intel.get_player_name_context(p, speaker_api_key)
@@ -237,6 +234,27 @@ async def on_message(message):
                     jeremy_reply = "*(Jeremy nods and goes back to work)*"
 
                 await message.channel.send(jeremy_reply)
+
+                # 7b. If a matchup was live-fetched, post the full per-player PDF report
+                if battle_pdf_data:
+                    _od, _td = battle_pdf_data
+                    _enemy_label = _td.get("faction_name", "Enemy").replace(" ", "_")
+                    _pdf_path = f"BattleIntel_{_enemy_label}.pdf"
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            lambda: battle_report.generate_battle_report(_od, _td, _pdf_path)
+                        )
+                        with open(_pdf_path, "rb") as _f:
+                            await message.channel.send(
+                                "Full per-player attack profiles:",
+                                file=discord.File(_f, filename=_pdf_path)
+                            )
+                    except Exception as _pdf_err:
+                        print(f"[Route B PDF] {_pdf_err}")
+                    finally:
+                        if os.path.exists(_pdf_path):
+                            os.remove(_pdf_path)
 
                 # 8. Fire memory consolidation + background profile refresh
                 loop.run_in_executor(

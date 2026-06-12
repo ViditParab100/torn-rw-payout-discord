@@ -338,8 +338,11 @@ def get_all_genders():
     return {d["torn_name"]: d["gender"] for d in docs}
 
 def get_member_torn_id(torn_name):
-    """Look up a player's Torn ID by their display name. Returns None if not found."""
-    doc = faction_members_col.find_one({"torn_name": torn_name}, {"torn_id": 1})
+    """Look up a player's Torn ID by display name (case-insensitive). Returns None if not found."""
+    doc = faction_members_col.find_one(
+        {"torn_name": {"$regex": f"^{torn_name}$", "$options": "i"}},
+        {"torn_id": 1}
+    )
     return doc["torn_id"] if doc else None
 
 
