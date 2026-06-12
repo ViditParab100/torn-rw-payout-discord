@@ -289,10 +289,37 @@ def enrich_player(api_key, discord_id, display_name):
         print(f"[PlayerIntel] enrich_player error (discord_id={discord_id}): {e}")
 
 
+def _fmt_last_seen(last_action):
+    """Returns a natural last-seen string from a Torn last_action dict, or None."""
+    if not last_action or not isinstance(last_action, dict):
+        return None
+    online_status = last_action.get("status", "")
+    relative = last_action.get("relative", "")
+    if online_status.lower() == "online":
+        return "Online RIGHT NOW"
+    if relative:
+        return f"{relative} ({online_status})"
+    return None
+
+
+def _company_health_note(stars):
+    """Returns a short health commentary string for a company's star rating."""
+    if stars is None:
+        return ""
+    if stars >= 5:
+        return "top rated, business is booming"
+    if stars == 4:
+        return "doing pretty well"
+    if stars == 3:
+        return "solid, mid-tier"
+    return "a bit of a struggle right now"
+
+
 def get_player_name_context(player_name, api_key):
     """
-    Looks up a player by display name → torn_id in faction_members, then fetches
-    their public Torn v1 profile. Returns a formatted context string or "".
+    Looks up a player by display name -> torn_id in faction_members, then fetches
+    their public Torn v1 profile. Returns a formatted multi-line context string or "".
+    Includes: level/title, donator status, last seen, company role + health.
     Used when Jeremy is asked about a specific member (not the speaker).
     """
     torn_id = memory_db.get_member_torn_id(player_name)
@@ -309,26 +336,74 @@ def get_player_name_context(player_name, api_key):
     gender = profile.get("gender")
     age_days = profile.get("age")
     status_obj = profile.get("status") or {}
-    status = status_obj.get("state", "Okay") if isinstance(status_obj, dict) else "?"
+    status_state = status_obj.get("state", "Okay") if isinstance(status_obj, dict) else "Okay"
+    status_desc = status_obj.get("description", "") if isinstance(status_obj, dict) else ""
     faction_obj = profile.get("faction") or {}
     faction_pos = faction_obj.get("position") if isinstance(faction_obj, dict) else None
+    job_obj = profile.get("job") or {}
+    company_id = job_obj.get("company_id") if isinstance(job_obj, dict) else None
+    company_name = (job_obj.get("company_name") or job_obj.get("company")) if isinstance(job_obj, dict) else None
+    job_pos = job_obj.get("position") if isinstance(job_obj, dict) else None
+    last_action = profile.get("last_action") or {}
 
-    parts = []
+    lines = [f"[Live Profile - {name}]"]
+
     if level:
-        parts.append(f"Level {level}" + (f" ({title})" if title else ""))
-    if status and status.lower() not in ("okay", "ok"):
-        parts.append(f"Status: {status}")
-    if donator:
-        parts.append("Donator")
+        lines.append(f"Level: {level}" + (f" ({title})" if title else ""))
+
+    meta = []
     if gender:
-        parts.append(f"Gender: {gender}")
-    if faction_pos:
-        parts.append(f"Faction: {faction_pos}")
+        meta.append(f"Gender: {gender}")
     if age_days:
         years = age_days // 365
-        parts.append(f"Age: ~{years}yr" if years else f"Age: {age_days}d")
+        meta.append(f"Age: ~{years}yr in Torn" if years else f"Age: {age_days}d in Torn")
+    if meta:
+        lines.append(" | ".join(meta))
 
-    return f"[Live Profile — {name}] " + " | ".join(parts) if parts else ""
+    if faction_pos:
+        lines.append(f"Faction role: {faction_pos}")
+
+    # Non-donator is highlighted more than donator — good convo hook for Jeremy
+    if donator is not None:
+        if donator:
+            lines.append("Donator: YES")
+        else:
+            lines.append("Donator: NO -- never bought a donator pack (worth asking if they're planning to!)")
+
+    if status_state and status_state.lower() not in ("okay", "ok"):
+        s = f"Status: {status_state}"
+        if status_desc:
+            s += f" -- {status_desc}"
+        lines.append(s)
+
+    last_seen = _fmt_last_seen(last_action)
+    if last_seen:
+        lines.append(f"Last seen: {last_seen}")
+
+    # Company — director vs employee phrasing; fetch health details if possible
+    if company_name and job_pos:
+        is_director = job_pos.lower() in ("director", "co-director", "owner")
+        role_phrase = "Director/Owner at" if is_director else f"{job_pos} at"
+        cline = f'Company: {role_phrase} "{company_name}"'
+        if company_id:
+            cdata = fetch_company(api_key, company_id)
+            if cdata:
+                type_field = cdata.get("type") or {}
+                ctype = type_field.get("name") if isinstance(type_field, dict) else None
+                stars = cdata.get("rating")
+                emps = cdata.get("employees") or []
+                emp_count = len(emps) if isinstance(emps, list) else None
+                if ctype:
+                    cline += f" ({ctype})"
+                if stars is not None:
+                    cline += f", {stars} stars -- {_company_health_note(stars)}"
+                if emp_count:
+                    cline += f", {emp_count} employees"
+        lines.append(cline)
+    elif company_name:
+        lines.append(f'Company: Works at "{company_name}"')
+
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def get_player_context(discord_id):
@@ -352,6 +427,7 @@ def get_player_context(discord_id):
     age_days = profile.get("age_days")
     faction_pos = profile.get("faction_position")
     gender = profile.get("gender")
+    job_pos = profile.get("job_position", "")
 
     if level:
         parts.append(f"Level {level}" + (f" ({title})" if title else ""))
@@ -359,8 +435,11 @@ def get_player_context(discord_id):
         parts.append(f"Gender: {gender}")
     if status and status.lower() not in ("okay", "ok"):
         parts.append(f"Status: {status}")
-    if donator:
-        parts.append("Donator")
+    if donator is not None:
+        if donator:
+            parts.append("Donator: YES")
+        else:
+            parts.append("Donator: NO -- never bought a pack")
     if faction_pos:
         parts.append(f"Faction: {faction_pos}")
     if age_days:
@@ -369,18 +448,21 @@ def get_player_context(discord_id):
 
     cd = profile.get("company")
     if cd:
+        is_director = str(job_pos).lower() in ("director", "co-director", "owner")
+        role_phrase = "Director/Owner at" if is_director else f"{job_pos or 'Employee'} at"
+        stars = cd.get("rating")
+        health = f", {stars} stars -- {_company_health_note(stars)}" if stars is not None else ""
+        emp = cd.get("employee_count")
+        emp_str = f", {emp} staff" if emp else ""
         parts.append(
-            f"Company: {cd.get('name', '?')} ({cd.get('type', '?')}) | "
-            f"{cd.get('rating', '?')} stars | "
-            f"{cd.get('days_old', '?')} days old | "
-            f"{cd.get('employee_count', '?')} staff | "
-            f"{profile.get('job_position', '?')}"
+            f"Company: {role_phrase} \"{cd.get('name', '?')}\" "
+            f"({cd.get('type', '?')}){health}{emp_str}"
         )
     elif profile.get("company_name"):
         parts.append(
             f"Company: {profile['company_name']} "
-            f"({profile.get('job_position', 'employee')})"
+            f"({job_pos or 'employee'})"
         )
 
     name = profile.get("torn_name", "?")
-    return f"[Torn Profile — {name}] " + " | ".join(parts) if parts else ""
+    return f"[Torn Profile - {name}] " + " | ".join(parts) if parts else ""
