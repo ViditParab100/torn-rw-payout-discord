@@ -13,6 +13,7 @@ import chart_generator
 import memory_db
 import milestone_detector
 import ffscouter
+import battle_report
 import lore_db
 import player_intel
 
@@ -367,11 +368,32 @@ async def battle_intel(interaction: discord.Interaction, enemy_faction_id: int =
         jeremy_take = ai_engine.present_battle_intel(comparison)
 
         msg = f"{jeremy_take}\n```\n{comparison}\n```"
-        # Discord has a 2000 char limit; truncate comparison if needed
         if len(msg) > 1990:
             msg = f"{jeremy_take}\n```\n{comparison[:1600]}\n...(truncated)\n```"
 
         await interaction.channel.send(msg)
+
+        # Generate per-player PDF report
+        enemy_label = their_data.get("faction_name", f"Faction_{enemy_faction_id}")
+        pdf_path = f"BattleIntel_{enemy_label.replace(' ', '_')}.pdf"
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: battle_report.generate_battle_report(our_data, their_data, pdf_path)
+            )
+            with open(pdf_path, "rb") as f:
+                await interaction.channel.send(
+                    "Per-player attack profiles:",
+                    file=discord.File(f, filename=pdf_path)
+                )
+        except Exception as pdf_err:
+            print(f"[BattleReport] PDF generation failed: {pdf_err}")
+            await interaction.channel.send("*(PDF report generation failed — text summary above is all I got)*")
+        finally:
+            import os as _os
+            if _os.path.exists(pdf_path):
+                _os.remove(pdf_path)
 
     except Exception as e:
         print(f"BATTLE_INTEL ERROR: {e}")
